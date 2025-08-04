@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Upload, Download, Play, Square, RotateCcw } from "lucide-react"
 
 export default function SVGBoilingAnimation() {
-  const [baseFrequency, setBaseFrequency] = useState(0.02)
-  const [scale, setScale] = useState(5)
+  const [baseFrequency, setBaseFrequency] = useState(0.025)
+  const [scale, setScale] = useState(7.5)
   const animationScale = 0.2 // 고정값으로 설정
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
@@ -124,54 +124,134 @@ export default function SVGBoilingAnimation() {
   }
 
   const resetValues = () => {
-    setBaseFrequency(0.02)
-    setScale(5)
+    setBaseFrequency(0.025)
+    setScale(7.5)
     setAnimationSpeed(100)
     stopAnimation()
   }
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const content = e.target?.result as string
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(content, "image/svg+xml")
-      const svgElement = doc.querySelector("svg")
+    const fileType = file.type
+    
+    if (fileType === 'image/svg+xml' || file.name.endsWith('.svg')) {
+      // Handle SVG files as before
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const content = e.target?.result as string
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(content, "image/svg+xml")
+        const svgElement = doc.querySelector("svg")
 
-      if (svgElement) {
-        // Extract inner content (excluding svg wrapper)
-        setSvgContent(svgElement.innerHTML)
-        
-        // Extract viewBox, width, and height
-        const viewBox = svgElement.getAttribute("viewBox") || "0 0 200 200"
-        setOriginalViewBox(viewBox)
-        
-        const width = svgElement.getAttribute("width")
-        const height = svgElement.getAttribute("height")
-        
-        // If width and height are not specified, calculate from viewBox
-        let svgWidth = 200
-        let svgHeight = 200
-        
-        if (width && height) {
-          svgWidth = parseInt(width, 10)
-          svgHeight = parseInt(height, 10)
-        } else {
-          const viewBoxValues = viewBox.split(" ").map(Number)
-          if (viewBoxValues.length === 4) {
-            svgWidth = viewBoxValues[2]
-            svgHeight = viewBoxValues[3]
+        if (svgElement) {
+          // Extract inner content (excluding svg wrapper)
+          setSvgContent(svgElement.innerHTML)
+          
+          // Extract viewBox, width, and height
+          const viewBox = svgElement.getAttribute("viewBox") || "0 0 200 200"
+          setOriginalViewBox(viewBox)
+          
+          const width = svgElement.getAttribute("width")
+          const height = svgElement.getAttribute("height")
+          
+          // If width and height are not specified, calculate from viewBox
+          let svgWidth = 200
+          let svgHeight = 200
+          
+          if (width && height) {
+            svgWidth = parseInt(width, 10)
+            svgHeight = parseInt(height, 10)
+          } else {
+            const viewBoxValues = viewBox.split(" ").map(Number)
+            if (viewBoxValues.length === 4) {
+              svgWidth = viewBoxValues[2]
+              svgHeight = viewBoxValues[3]
+            }
           }
+          
+          setOriginalWidth(svgWidth)
+          setOriginalHeight(svgHeight)
         }
-        
-        setOriginalWidth(svgWidth)
-        setOriginalHeight(svgHeight)
+      }
+      reader.readAsText(file)
+    } else if (fileType === 'image/png' || fileType === 'image/jpeg' || fileType === 'image/jpg') {
+      // Handle PNG/JPG files with imagetracerjs
+      try {
+        // Dynamic import to avoid SSR issues
+        const ImageTracer = (await import('imagetracerjs')).default
+
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          const img = new Image()
+          img.onload = () => {
+            // Calculate scaled dimensions to fit within canvas while maintaining aspect ratio
+            const canvasSize = 500 // Size of the animation canvas
+            let scaledWidth = img.width
+            let scaledHeight = img.height
+            
+            // Scale image to fit within canvas while preserving aspect ratio
+            const aspectRatio = img.width / img.height
+            if (img.width > img.height) {
+              // Width is larger - fit to canvas width
+              scaledWidth = canvasSize
+              scaledHeight = canvasSize / aspectRatio
+            } else {
+              // Height is larger or equal - fit to canvas height
+              scaledHeight = canvasSize
+              scaledWidth = canvasSize * aspectRatio
+            }
+            
+            // Create canvas to get image data
+            const canvas = document.createElement('canvas')
+            const ctx = canvas.getContext('2d')
+            if (!ctx) return
+
+            canvas.width = scaledWidth
+            canvas.height = scaledHeight
+            ctx.drawImage(img, 0, 0, scaledWidth, scaledHeight)
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            
+            // Convert to SVG using ImageTracer
+            const svgString = ImageTracer.imagedataToSVG(imageData, {
+              ltres: 1,
+              qtres: 1,
+              pathomit: 8,
+              rightangleenhance: true,
+              colorsampling: 1,
+              numberofcolors: 16,
+              mincolorratio: 0.02,
+              colorquantcycles: 3,
+              scale: 1,
+              strokewidth: 1,
+              blurradius: 0,
+              blurdelta: 20
+            })
+
+            // Parse the generated SVG
+            const parser = new DOMParser()
+            const doc = parser.parseFromString(svgString, "image/svg+xml")
+            const svgElement = doc.querySelector("svg")
+
+            if (svgElement) {
+              // Extract inner content (excluding svg wrapper)
+              setSvgContent(svgElement.innerHTML)
+              
+              // Set dimensions based on scaled image
+              setOriginalWidth(scaledWidth)
+              setOriginalHeight(scaledHeight)
+              setOriginalViewBox(`0 0 ${scaledWidth} ${scaledHeight}`)
+            }
+          }
+          img.src = e.target?.result as string
+        }
+        reader.readAsDataURL(file)
+      } catch (error) {
+        console.error('Error converting image to SVG:', error)
       }
     }
-    reader.readAsText(file)
   }
 
   const exportAsGIF = async () => {
@@ -184,8 +264,8 @@ export default function SVGBoilingAnimation() {
       const gif = new GIF({
         workers: 2,
         quality: 10,
-        width: 330,
-        height: 330,
+        width: 300,
+        height: 300,
         workerScript: "/gif.worker.js",
       })
 
@@ -193,8 +273,8 @@ export default function SVGBoilingAnimation() {
       const tempSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
       tempSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg")
       tempSvg.setAttribute("viewBox", scaledViewBox)
-      tempSvg.setAttribute("width", "330")
-      tempSvg.setAttribute("height", "330")
+      tempSvg.setAttribute("width", "300")
+      tempSvg.setAttribute("height", "300")
       tempSvg.setAttribute("preserveAspectRatio", "xMidYMid meet")
       tempSvg.innerHTML = svgContent
 
@@ -245,8 +325,8 @@ export default function SVGBoilingAnimation() {
       }
 
       const canvas = document.createElement("canvas")
-      canvas.width = 330
-      canvas.height = 330
+      canvas.width = 300
+      canvas.height = 300
       const ctx = canvas.getContext("2d")
       if (!ctx) return
 
@@ -286,9 +366,11 @@ export default function SVGBoilingAnimation() {
           img.onload = () => {
             try {
               ctx.clearRect(0, 0, canvas.width, canvas.height)
+              // 흰색 배경을 300x300 영역에만 적용
               ctx.fillStyle = "white"
-              ctx.fillRect(0, 0, canvas.width, canvas.height)
-              ctx.drawImage(img, 0, 0, 330, 330)
+              ctx.fillRect(0, 0, 300, 300)
+              // SVG를 300x300 영역에 맞춰 그림
+              ctx.drawImage(img, 0, 0, 300, 300)
 
               // Add frame to GIF
               gif.addFrame(canvas, { delay: animationSpeed, copy: true })
@@ -338,8 +420,8 @@ export default function SVGBoilingAnimation() {
     const animationDuration = (animationSpeed * offsetArray.length) / 1000
 
     // Use the same scaled viewBox as the animation canvas
-    const exportWidth = 330
-    const exportHeight = 330
+    const exportWidth = 500
+    const exportHeight = 500
     const exportViewBox = scaledViewBox
 
     // Create animated SVG with SMIL animations
@@ -373,30 +455,30 @@ export default function SVGBoilingAnimation() {
 
   // Calculate scaled viewBox when dimensions change
   useEffect(() => {
-    const maxSize = 300
-    const margin = 30
-    const totalCanvasSize = maxSize + (margin * 2)
+    const canvasSize = 500 // Total canvas size
     const aspectRatio = originalWidth / originalHeight
     let scaledWidth = originalWidth
     let scaledHeight = originalHeight
     
-    if (originalWidth > maxSize || originalHeight > maxSize) {
+    // Scale to fit within canvas while maintaining aspect ratio
+    if (originalWidth > canvasSize || originalHeight > canvasSize) {
       if (aspectRatio > 1) {
         // Width is larger
-        scaledWidth = maxSize
-        scaledHeight = maxSize / aspectRatio
+        scaledWidth = canvasSize
+        scaledHeight = canvasSize / aspectRatio
       } else {
         // Height is larger or equal
-        scaledHeight = maxSize
-        scaledWidth = maxSize * aspectRatio
+        scaledHeight = canvasSize
+        scaledWidth = canvasSize * aspectRatio
       }
     }
     
-    // Calculate centered position with margin
-    const offsetX = (totalCanvasSize - scaledWidth) / 2
-    const offsetY = (totalCanvasSize - scaledHeight) / 2
+    // Calculate centered position within canvas
+    const offsetX = (canvasSize - scaledWidth) / 2
+    const offsetY = (canvasSize - scaledHeight) / 2
     
-    const newScaledViewBox = `${-offsetX} ${-offsetY} ${totalCanvasSize} ${totalCanvasSize}`
+    // Create viewBox that centers the content
+    const newScaledViewBox = `${-offsetX} ${-offsetY} ${canvasSize} ${canvasSize}`
     setScaledViewBox(newScaledViewBox)
   }, [originalWidth, originalHeight])
 
@@ -424,23 +506,6 @@ export default function SVGBoilingAnimation() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">SVG Boiling Animation Demo</h1>
-
-        {/* File Upload Section */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="w-5 h-5" />
-              Upload SVG File
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <input ref={fileInputRef} type="file" accept=".svg" onChange={handleFileUpload} className="hidden" />
-            <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="w-full">
-              Choose SVG File
-            </Button>
-          </CardContent>
-        </Card>
 
         {/* Animated SVG */}
         <Card className="mb-6">
@@ -453,13 +518,29 @@ export default function SVGBoilingAnimation() {
                 ref={animatedSvgRef}
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox={scaledViewBox}
-                width="330"
-                height="330"
+                width="500"
+                height="500"
                 preserveAspectRatio="xMidYMid meet"
                 className="border border-gray-200"
                 dangerouslySetInnerHTML={{ __html: svgContent }}
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* File Upload Section */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Upload Image File
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <input ref={fileInputRef} type="file" accept=".svg,.png,.jpg,.jpeg" onChange={handleFileUpload} className="hidden" />
+            <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="w-full">
+              Choose Image File (SVG, PNG, JPG)
+            </Button>
           </CardContent>
         </Card>
 
@@ -493,18 +574,6 @@ export default function SVGBoilingAnimation() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Animation Speed: {animationSpeed}ms</Label>
-              <Slider
-                value={[animationSpeed]}
-                onValueChange={(value) => setAnimationSpeed(value[0])}
-                min={50}
-                max={500}
-                step={10}
-                className="w-full"
-              />
-              <div className="text-xs text-gray-500 text-center">Faster ← → Slower</div>
-            </div>
 
             <div className="flex flex-wrap gap-2 justify-center">
               <Button onClick={resetValues} variant="outline">
@@ -539,15 +608,6 @@ export default function SVGBoilingAnimation() {
           </CardContent>
         </Card>
 
-        {/* SVG Source Code */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>SVG Source Code</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Textarea value={animatedSvgRef.current?.outerHTML || ""} readOnly className="font-mono text-sm h-32" />
-          </CardContent>
-        </Card>
       </div>
     </div>
   )
