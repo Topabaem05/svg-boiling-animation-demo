@@ -22,3 +22,26 @@ declare module 'gif.js' {
 
   export = GIF
 }
+
+declare module 'imagetracerjs' {
+  interface ImageTracerOptions {
+    ltres?: number
+    qtres?: number
+    pathomit?: number
+    rightangleenhance?: boolean
+    colorsampling?: number
+    numberofcolors?: number
+    mincolorratio?: number
+    colorquantcycles?: number
+    scale?: number
+    strokewidth?: number
+    blurradius?: number
+    blurdelta?: number
+  }
+
+  class ImageTracer {
+    static imagedataToSVG(imageData: ImageData, options?: ImageTracerOptions): string
+  }
+
+  export = ImageTracer
+}
