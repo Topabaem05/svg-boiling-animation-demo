@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>떨림 측정 앱</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        @font-face {
+            font-family: 'Ownglyph_ParkDaHyun';
+            src: url('https://fastly.jsdelivr.net/gh/projectnoonnu/2411-3@1.0/Ownglyph_ParkDaHyun.woff2') format('woff2');
+            font-weight: normal;
+            font-style: normal;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Ownglyph_ParkDaHyun', sans-serif;
+            background-color: #ffffff;
+            width: 393px;
+            height: 852px;
+            margin: 0 auto;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .canvas-area {
+            position: absolute;
+            left: 30px;
+            top: 74px;
+            width: 332px;
+            height: 456px;
+        }
+
+        .canvas-background {
+            width: 100%;
+            height: 100%;
+        }
+
+        .tremor-indicators {
+            position: absolute;
+            left: 50px;
+            top: 559px;
+            width: 290px;
+            height: 167.125px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .tremor-indicator {
+            width: 130px;
+            height: 130px;
+            position: relative;
+        }
+
+        .radial-elements {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 85px;
+            height: 85px;
+        }
+
+        .radial-element {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: 50% 50%;
+            transform: translate(-50%, -50%) rotate(var(--angle)) translateY(calc(-1 * var(--distance) * 10px));
+        }
+
+        .radial-element img {
+            transform: scale(var(--scale));
+            display: block;
+        }
+
+        .tremor-circle-container {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 85px;
+            height: 85px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .tremor-circle {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+            user-select: none;
+            transform-origin: center center;
+        }
+
+        .tremor-circle:active {
+            cursor: grabbing;
+        }
+
+        .tremor-text {
+            position: absolute;
+            left: 193px;
+            top: 740px;
+            transform: translateX(-50%);
+            font-size: 30px;
+            color: #000000;
+            text-align: center;
+            white-space: nowrap;
+            line-height: normal;
+        }
+
+        .bottom-toolbar {
+            position: absolute;
+            left: 0;
+            top: 802px;
+            width: 393px;
+            height: 50px;
+            background-color: #303030;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+        }
+
+        .toolbar-icon {
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .toolbar-icon .icon {
+            width: 32px;
+            height: 32px;
+        }
+
+        .tremor-value {
+            font-weight: bold;
+        }
+
+        .measuring {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* Popup Modal Styles */
+        .popup-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .popup-container {
+            position: relative;
+            background-color: transparent;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow: visible;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            z-index: 1001;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+
+        /* Popup Box Styles - Scaled to 0.5x bottom toolbar width */
+        .popup-container .box {
+            width: 196px;
+            height: 116px;
+        }
+
+        .popup-container .box .group {
+            position: relative;
+            width: 196px;
+            height: 116px;
+            top: 0;
+            left: 0;
+        }
+
+        .popup-container .box .overlap-group {
+            position: relative;
+            width: 204px;
+            height: 124px;
+            top: -4px;
+            left: -4px;
+            background-image: url(rectangle263.svg);
+            background-size: 100% 100%;
+        }
+
+        .popup-container .box .img {
+            position: absolute;
+            width: 159px;
+            height: 46px;
+            top: 12px;
+            left: 23px;
+        }
+
+        .popup-container .box .group-2 {
+            position: absolute;
+            width: 159px;
+            height: 46px;
+            top: 64px;
+            left: 23px;
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas-area" id="canvas">
+        <img src="Rectangle 266.svg" alt="Canvas background" class="canvas-background">
+    </div>
+    
+    <div class="tremor-indicators">
+        <div class="tremor-indicator">
+            <div class="radial-elements">
+                <div class="radial-element" style="--angle: 0deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 30deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 60deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 90deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 120deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 150deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 180deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 210deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 240deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 270deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 300deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 330deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 15deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 45deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 75deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 105deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 135deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 165deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 195deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 225deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 255deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 285deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 315deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 345deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+            </div>
+            <div class="tremor-circle-container">
+                <img src="Group 241.svg" alt="Tremor circle" class="tremor-circle" id="tremor-circle">
+            </div>
+        </div>
+        
+        <div class="tremor-indicator">
+            <div class="radial-elements">
+                <div class="radial-element" style="--angle: 0deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 30deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 60deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 90deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 120deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 150deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 180deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 210deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 240deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 270deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 300deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 330deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 15deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 45deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 75deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 105deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 135deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 165deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 195deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 225deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 255deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 285deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 315deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+                <div class="radial-element" style="--angle: 345deg; --scale: 1.0; --distance: 6;"><img src="Vector 98.svg" alt="Radial element"></div>
+            </div>
+            <div class="tremor-circle-container">
+                <img src="Group 241-4.svg" alt="Intensity circle" class="tremor-circle" id="tremor-circle-2">
+            </div>
+        </div>
+    </div>
+
+    <div class="tremor-text" style="left: 100px; top: 740px; font-size: 25px; width: 140px;">
+        떨림 세기 : <span class="tremor-value" id="tremor-value" style="display: inline-block; width: 50px; text-align: left;">0.0</span>
+    </div>
+    
+    <div class="tremor-text" style="left: 295px; top: 740px; font-size: 25px; width: 140px;">
+        세기 강도 : <span class="tremor-value" id="intensity-value" style="display: inline-block; width: 40px; text-align: left;">0.0</span>
+    </div>
+
+    <div class="bottom-toolbar">
+        <div class="toolbar-icon" 
+             hx-post="/attach" 
+             hx-trigger="click"
+             hx-target="#canvas"
+             title="첨부">
+            <img src="Paperclip.svg" alt="첨부" class="icon">
+        </div>
+        
+        <div class="toolbar-icon" 
+             onclick="showPopup()"
+             title="팝업 열기">
+            <img src="UploadSimple.svg" alt="팝업" class="icon">
+        </div>
+        
+        <div class="toolbar-icon" 
+             hx-get="/settings" 
+             hx-trigger="click"
+             hx-target="body"
+             hx-swap="innerHTML"
+             title="설정">
+            <img src="Gear.svg" alt="설정" class="icon">
+        </div>
+    </div>
+
+    <!-- Popup Modal -->
+    <div id="popup-overlay" class="popup-overlay" style="display: none;">
+        <div class="popup-container">
+            <div class="box">
+                <div class="group">
+                    <div class="overlap-group">
+                        <img class="img" src="group-2362.svg" onclick="handleButton1Click()" style="cursor: pointer;" />
+                        <img class="group-2" src="group-2372.svg" onclick="handleButton2Click()" style="cursor: pointer;" />
+                    </div>
+                </div>
+            </div>
+            <button class="close-btn" onclick="closePopup()">
+                <img src="X.svg" alt="닫기" style="width: 20px; height: 20px; ">
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // 간단한 떨림 측정 시뮬레이션
+        let measuring = false;
+        let measureInterval;
+
+        document.addEventListener('htmx:afterRequest', function(evt) {
+            if (evt.detail.pathInfo.requestPath === '/measure') {
+                if (!measuring) {
+                    startMeasuring();
+                } else {
+                    stopMeasuring();
+                }
+            }
+        });
+
+        function startMeasuring() {
+            measuring = true;
+            document.querySelector('.tremor-circle-container').classList.add('measuring');
+            
+            measureInterval = setInterval(() => {
+                const tremorValue = (Math.random() * 2).toFixed(1);
+                document.getElementById('tremor-value').textContent = tremorValue;
+            }, 500);
+        }
+
+        function stopMeasuring() {
+            measuring = false;
+            document.querySelector('.tremor-circle-container').classList.remove('measuring');
+            clearInterval(measureInterval);
+        }
+
+        // 볼륨 다이얼 회전 기능
+        let isDragging = false;
+        let isDragging2 = false;
+        let startAngle = 0;
+        let startAngle2 = 0;
+        let currentRotation = 0;
+        let currentRotation2 = 0;
+        let tremorValue = 0.001; // 초기값 0.001
+        let intensityValue = 1.0; // 두 번째 다이얼 (강도) 초기값
+        const minTremorValue = 0.001;
+        const maxTremorValue = 0.050;
+        const minIntensityValue = 1.0;
+        const maxIntensityValue = 20.0;
+        const volumeDial = document.getElementById('tremor-circle');
+        const volumeDial2 = document.getElementById('tremor-circle-2');
+        const tremorValueElement = document.getElementById('tremor-value');
+        const intensityValueElement = document.getElementById('intensity-value');
+
+        // 초기 값 설정
+        tremorValueElement.textContent = tremorValue.toFixed(3);
+        intensityValueElement.textContent = intensityValue.toFixed(1);
+
+        function getAngle(centerX, centerY, clientX, clientY) {
+            const deltaX = clientX - centerX;
+            const deltaY = clientY - centerY;
+            return Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+        }
+
+        function updateTremorValue(angleDiff, dialNumber = 1) {
+            if (dialNumber === 1) {
+                // 떨림 다이얼 (0.001 - 0.050)
+                const valueRange = maxTremorValue - minTremorValue;
+                const valueChange = (angleDiff / 360) * valueRange;
+                const newValue = tremorValue + valueChange;
+                
+                // 값 범위 체크 및 회전 제한
+                if (newValue <= minTremorValue) {
+                    tremorValue = minTremorValue;
+                    if (angleDiff < 0) return false;
+                } else if (newValue >= maxTremorValue) {
+                    tremorValue = maxTremorValue;
+                    if (angleDiff > 0) return false;
+                } else {
+                    tremorValue = newValue;
+                }
+                
+                tremorValueElement.textContent = tremorValue.toFixed(3);
+            } else {
+                // 강도 다이얼 (1.0 - 20.0)
+                const valueRange = maxIntensityValue - minIntensityValue;
+                const valueChange = (angleDiff / 360) * valueRange;
+                const newValue = intensityValue + valueChange;
+                
+                // 값 범위 체크 및 회전 제한
+                if (newValue <= minIntensityValue) {
+                    intensityValue = minIntensityValue;
+                    if (angleDiff < 0) return false;
+                } else if (newValue >= maxIntensityValue) {
+                    intensityValue = maxIntensityValue;
+                    if (angleDiff > 0) return false;
+                } else {
+                    intensityValue = newValue;
+                }
+                
+                intensityValueElement.textContent = intensityValue.toFixed(1);
+            }
+            
+            return true; // 회전 허용
+        }
+
+
+        volumeDial.addEventListener('mousedown', function(e) {
+            isDragging = true;
+            const rect = volumeDial.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            startAngle = getAngle(centerX, centerY, e.clientX, e.clientY);
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (isDragging) {
+                const rect = volumeDial.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                const currentAngle = getAngle(centerX, centerY, e.clientX, e.clientY);
+                let angleDiff = currentAngle - startAngle;
+                
+                // 각도 차이 정규화 (-180 ~ 180)
+                if (angleDiff > 180) angleDiff -= 360;
+                if (angleDiff < -180) angleDiff += 360;
+                
+                // 회전 허용 여부 체크
+                if (updateTremorValue(angleDiff, 1)) {
+                    currentRotation += angleDiff;
+                    volumeDial.style.transform = `rotate(${currentRotation}deg)`;
+                }
+                
+                startAngle = currentAngle;
+            }
+            
+            if (isDragging2) {
+                const rect = volumeDial2.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                const currentAngle = getAngle(centerX, centerY, e.clientX, e.clientY);
+                let angleDiff = currentAngle - startAngle2;
+                
+                // 각도 차이 정규화 (-180 ~ 180)
+                if (angleDiff > 180) angleDiff -= 360;
+                if (angleDiff < -180) angleDiff += 360;
+                
+                // 회전 허용 여부 체크
+                if (updateTremorValue(angleDiff, 2)) {
+                    currentRotation2 += angleDiff;
+                    volumeDial2.style.transform = `rotate(${currentRotation2}deg)`;
+                }
+                
+                startAngle2 = currentAngle;
+            }
+        });
+
+        document.addEventListener('mouseup', function() {
+            isDragging = false;
+            isDragging2 = false;
+        });
+
+        // 두 번째 다이얼 이벤트
+        volumeDial2.addEventListener('mousedown', function(e) {
+            isDragging2 = true;
+            const rect = volumeDial2.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            startAngle2 = getAngle(centerX, centerY, e.clientX, e.clientY);
+            e.preventDefault();
+        });
+
+        // 터치 이벤트 지원 (모바일)
+        volumeDial.addEventListener('touchstart', function(e) {
+            isDragging = true;
+            const rect = volumeDial.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const touch = e.touches[0];
+            startAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY);
+            e.preventDefault();
+        });
+
+        document.addEventListener('touchmove', function(e) {
+            if (isDragging) {
+                const rect = volumeDial.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                const touch = e.touches[0];
+                const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY);
+                let angleDiff = currentAngle - startAngle;
+                
+                // 각도 차이 정규화 (-180 ~ 180)
+                if (angleDiff > 180) angleDiff -= 360;
+                if (angleDiff < -180) angleDiff += 360;
+                
+                // 회전 허용 여부 체크
+                if (updateTremorValue(angleDiff, 1)) {
+                    currentRotation += angleDiff;
+                    volumeDial.style.transform = `rotate(${currentRotation}deg)`;
+                }
+                
+                startAngle = currentAngle;
+            }
+            
+            if (isDragging2) {
+                const rect = volumeDial2.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                const touch = e.touches[0];
+                const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY);
+                let angleDiff = currentAngle - startAngle2;
+                
+                // 각도 차이 정규화 (-180 ~ 180)
+                if (angleDiff > 180) angleDiff -= 360;
+                if (angleDiff < -180) angleDiff += 360;
+                
+                // 회전 허용 여부 체크
+                if (updateTremorValue(angleDiff, 2)) {
+                    currentRotation2 += angleDiff;
+                    volumeDial2.style.transform = `rotate(${currentRotation2}deg)`;
+                }
+                
+                startAngle2 = currentAngle;
+            }
+        });
+
+        document.addEventListener('touchend', function() {
+            isDragging = false;
+            isDragging2 = false;
+        });
+
+        // 두 번째 다이얼 터치 이벤트
+        volumeDial2.addEventListener('touchstart', function(e) {
+            isDragging2 = true;
+            const rect = volumeDial2.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const touch = e.touches[0];
+            startAngle2 = getAngle(centerX, centerY, touch.clientX, touch.clientY);
+            e.preventDefault();
+        });
+
+        // Popup functions
+        function showPopup() {
+            document.getElementById('popup-overlay').style.display = 'flex';
+        }
+
+        function closePopup() {
+            document.getElementById('popup-overlay').style.display = 'none';
+        }
+
+        // Button functions for SVG buttons in popup
+        function handleButton1Click() {
+            console.log('Button 1 (group-2362.svg) clicked');
+            alert('첫 번째 버튼이 클릭되었습니다!');
+            // Add your custom functionality here
+        }
+
+        function handleButton2Click() {
+            console.log('Button 2 (group-2372.svg) clicked');
+            alert('두 번째 버튼이 클릭되었습니다!');
+            // Add your custom functionality here
+        }
+
+        // Close popup when clicking outside
+        document.getElementById('popup-overlay').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closePopup();
+            }
+        });
+
+        // HTMX 요청이 실제 서버 없이도 작동하도록 모의 응답 설정
+        document.body.addEventListener('htmx:beforeRequest', function(evt) {
+            evt.preventDefault();
+            
+            if (evt.detail.pathInfo.requestPath === '/attach') {
+                alert('첨부 기능이 실행됩니다.');
+            } else if (evt.detail.pathInfo.requestPath === '/settings') {
+                alert('설정 페이지로 이동합니다.');
+            }
+        });
+    </script>
+</body>
+</html>
