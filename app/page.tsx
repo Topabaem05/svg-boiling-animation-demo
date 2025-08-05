@@ -724,7 +724,7 @@ export default function SVGBoilingAnimation() {
   return (
     <div style={{
       fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
-      backgroundColor: '#ffffff',
+      backgroundColor: '#FFB784',
       width: '393px',
       height: '852px',
       margin: '0 auto',
@@ -909,10 +909,10 @@ export default function SVGBoilingAnimation() {
       {/* 텍스트 라벨들 */}
       <div style={{
         position: 'absolute',
-        left: '100px',
+        left: '30px',
         top: '740px',
         fontSize: '25px',
-        color: '#000000',
+        color: 'rgb(0, 0, 0)',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         lineHeight: 'normal',
@@ -923,14 +923,15 @@ export default function SVGBoilingAnimation() {
       
       <div style={{
         position: 'absolute',
-        left: '295px',
+        left: '220px',
         top: '740px',
         fontSize: '25px',
-        color: '#000000',
+        color: 'rgb(0, 0, 0)',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         lineHeight: 'normal',
-        width: '140px'
+        width: '140px',
+        right: '0px'
       }}>
         세기 강도 : <span style={{ display: 'inline-block', width: '40px', textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
       </div>
