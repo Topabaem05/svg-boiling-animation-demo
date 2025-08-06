@@ -213,21 +213,16 @@ export default function SVGBoilingAnimation() {
         reader.onload = (e) => {
           const img = new Image()
           img.onload = () => {
-            // Calculate scaled dimensions to fit within canvas while maintaining aspect ratio
-            const canvasSize = 500 // Size of the animation canvas
+            // width가 310을 넘지 않도록 조정
+            const maxWidth = 310
             let scaledWidth = img.width
             let scaledHeight = img.height
             
-            // Scale image to fit within canvas while preserving aspect ratio
-            const aspectRatio = img.width / img.height
-            if (img.width > img.height) {
-              // Width is larger - fit to canvas width
-              scaledWidth = canvasSize
-              scaledHeight = canvasSize / aspectRatio
-            } else {
-              // Height is larger or equal - fit to canvas height
-              scaledHeight = canvasSize
-              scaledWidth = canvasSize * aspectRatio
+            // width가 310을 넘는 경우 비율을 유지하면서 스케일 조정
+            if (img.width > maxWidth) {
+              const scaleRatio = maxWidth / img.width
+              scaledWidth = maxWidth
+              scaledHeight = img.height * scaleRatio
             }
             
             // Create canvas to get image data
@@ -493,30 +488,24 @@ export default function SVGBoilingAnimation() {
 
   // Calculate scaled viewBox when dimensions change
   useEffect(() => {
-    const canvasSize = 325 // Total canvas size changed to match Rectangle 266.SVG area
-    const aspectRatio = originalWidth / originalHeight
+    const maxWidth = 310 // 최대 허용 너비
+    const viewBoxHeight = 415 // ViewBox 높이
     let scaledWidth = originalWidth
     let scaledHeight = originalHeight
     
-    // Scale to fit within canvas while maintaining aspect ratio
-    if (originalWidth > canvasSize || originalHeight > canvasSize) {
-      if (aspectRatio > 1) {
-        // Width is larger
-        scaledWidth = canvasSize
-        scaledHeight = canvasSize / aspectRatio
-      } else {
-        // Height is larger or equal
-        scaledHeight = canvasSize
-        scaledWidth = canvasSize * aspectRatio
-      }
+    // width가 310을 넘는 경우 비율을 유지하면서 스케일 조정
+    if (originalWidth > maxWidth) {
+      const scaleRatio = maxWidth / originalWidth
+      scaledWidth = maxWidth
+      scaledHeight = originalHeight * scaleRatio
     }
     
-    // Calculate centered position within canvas
-    const offsetX = (canvasSize - scaledWidth) / 2
-    const offsetY = (canvasSize - scaledHeight) / 2
+    // Calculate centered position within ViewBox
+    const offsetX = (maxWidth - scaledWidth) / 2
+    const offsetY = (viewBoxHeight - scaledHeight) / 2
     
-    // Create viewBox that centers the content
-    const newScaledViewBox = `${-offsetX} ${-offsetY} ${canvasSize} ${canvasSize}`
+    // Create viewBox that centers the content within the ViewBox dimensions
+    const newScaledViewBox = `${-offsetX} ${-offsetY} ${maxWidth} ${viewBoxHeight}`
     setScaledViewBox(newScaledViewBox)
   }, [originalWidth, originalHeight])
 
@@ -724,7 +713,7 @@ export default function SVGBoilingAnimation() {
   return (
     <div style={{
       fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
-      backgroundColor: '#ffffff',
+      backgroundColor: '#FFB784',
       width: '393px',
       height: '852px',
       margin: '0 auto',
@@ -736,14 +725,16 @@ export default function SVGBoilingAnimation() {
         position: 'absolute',
         left: '30px',
         top: '74px',
-        width: '332px',
-        height: '456px'
+        width: '349px',
+        height: '511px'
       }}>
-        <img src="/svg/Rectangle 266.svg" alt="Canvas background" style={{
+        <img src="/svg/Rectangle-266.svg" alt="Canvas background" style={{
           width: '100%',
           height: '100%',
           position: 'absolute',
-          zIndex: 0
+          zIndex: 0,
+          right: '10px',
+          bottom: '30px'
         }} />
         <div style={{
           position: 'absolute',
@@ -909,10 +900,10 @@ export default function SVGBoilingAnimation() {
       {/* 텍스트 라벨들 */}
       <div style={{
         position: 'absolute',
-        left: '100px',
+        left: '30px',
         top: '740px',
         fontSize: '25px',
-        color: '#000000',
+        color: 'rgb(0, 0, 0)',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         lineHeight: 'normal',
@@ -923,14 +914,15 @@ export default function SVGBoilingAnimation() {
       
       <div style={{
         position: 'absolute',
-        left: '295px',
+        left: '220px',
         top: '740px',
         fontSize: '25px',
-        color: '#000000',
+        color: 'rgb(0, 0, 0)',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         lineHeight: 'normal',
-        width: '140px'
+        width: '140px',
+        right: '0px'
       }}>
         세기 강도 : <span style={{ display: 'inline-block', width: '40px', textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
       </div>
