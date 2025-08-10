@@ -127,4 +127,11 @@
   body {
     @apply bg-background text-foreground;
   }
+  html, body {
+    height: 100dvh;
+    width: 100dvw;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
 }
