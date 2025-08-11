@@ -9,6 +9,16 @@ export default function SVGBoilingAnimation() {
   const DESIGN_HEIGHT = 852
   const vwp = (px: number) => `calc(${px} * 100dvw / ${DESIGN_WIDTH})`
   const vhp = (px: number) => `calc(${px} * 100dvh / ${DESIGN_HEIGHT})`
+  const ANGLE_MAX = 350
+  const TREMOR_MIN = 0.001
+  const TREMOR_MAX = 0.050
+  const INTENSITY_MIN = 1.0
+  const INTENSITY_MAX = 20.0
+  const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
+  const valueToAngle = (val: number, min: number, max: number) => {
+    const frac = clamp((val - min) / (max - min), 0, 1)
+    return frac * ANGLE_MAX
+  }
   const [baseFrequency, setBaseFrequency] = useState(0.001)
   const [scale, setScale] = useState(1.0)
   const animationScale = 0.2 // 고정값으로 설정
@@ -24,8 +34,8 @@ export default function SVGBoilingAnimation() {
   const [originalWidth, setOriginalWidth] = useState(200)
   const [originalHeight, setOriginalHeight] = useState(200)
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
-  const [tremorValue, setTremorValue] = useState(0.001)
-  const [intensityValue, setIntensityValue] = useState(1.0)
+  const [tremorValue, setTremorValue] = useState(TREMOR_MIN)
+  const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
   const [isDragging, setIsDragging] = useState(false)
   const [isDragging2, setIsDragging2] = useState(false)
   const [currentRotation, setCurrentRotation] = useState(0)
@@ -526,6 +536,10 @@ export default function SVGBoilingAnimation() {
 
   // 컴포넌트 마운트 시 초기 설정
   useEffect(() => {
+    // 초기 각도를 값에 맞춰 0~350도로 설정
+    setCurrentRotation(valueToAngle(TREMOR_MIN, TREMOR_MIN, TREMOR_MAX))
+    setCurrentRotation2(valueToAngle(INTENSITY_MIN, INTENSITY_MIN, INTENSITY_MAX))
+
     // 초기 필터 적용
     const timer = setTimeout(() => {
       applyFilters()
@@ -561,8 +575,8 @@ export default function SVGBoilingAnimation() {
     
     if (dialNumber === 1) {
       // 떨림 다이얼 (0.001 - 0.050)
-      const minTremorValue = 0.001
-      const maxTremorValue = 0.050
+      const minTremorValue = TREMOR_MIN
+      const maxTremorValue = TREMOR_MAX
       const valueRange = maxTremorValue - minTremorValue
       const valueChange = (angleDiff / 360) * valueRange
       const newValue = tremorValue + valueChange
@@ -570,19 +584,24 @@ export default function SVGBoilingAnimation() {
       if (newValue <= minTremorValue) {
         newTremorValue = minTremorValue
         setTremorValue(minTremorValue)
+        // 각도도 0도로 설정
+        setCurrentRotation(0)
         if (angleDiff < 0) return false
       } else if (newValue >= maxTremorValue) {
         newTremorValue = maxTremorValue
         setTremorValue(maxTremorValue)
+        // 각도도 최댓값(350도)으로 설정
+        setCurrentRotation(ANGLE_MAX)
         if (angleDiff > 0) return false
       } else {
         newTremorValue = Math.max(0.0001, newValue) // 항상 양수 유지
         setTremorValue(newTremorValue)
+        setCurrentRotation(valueToAngle(newTremorValue, minTremorValue, maxTremorValue))
       }
     } else {
       // 강도 다이얼 (1.0 - 20.0)
-      const minIntensityValue = 1.0
-      const maxIntensityValue = 20.0
+      const minIntensityValue = INTENSITY_MIN
+      const maxIntensityValue = INTENSITY_MAX
       const valueRange = maxIntensityValue - minIntensityValue
       const valueChange = (angleDiff / 360) * valueRange
       const newValue = intensityValue + valueChange
@@ -591,16 +610,19 @@ export default function SVGBoilingAnimation() {
         newIntensityValue = minIntensityValue
         setIntensityValue(minIntensityValue)
         setScale(minIntensityValue)
+        setCurrentRotation2(0)
         if (angleDiff < 0) return false
       } else if (newValue >= maxIntensityValue) {
         newIntensityValue = maxIntensityValue
         setIntensityValue(maxIntensityValue)
         setScale(maxIntensityValue)
+        setCurrentRotation2(ANGLE_MAX)
         if (angleDiff > 0) return false
       } else {
         newIntensityValue = Math.max(0.1, newValue) // 최소값으로 클램핑
         setIntensityValue(newIntensityValue)
         setScale(newIntensityValue)
+        setCurrentRotation2(valueToAngle(newIntensityValue, minIntensityValue, maxIntensityValue))
       }
     }
     
@@ -815,11 +837,11 @@ export default function SVGBoilingAnimation() {
       <div style={{
         position: 'absolute',
         left: vwp(30),
-        top: vhp(74),
-        width: vwp(349),
+        top: vhp(65),
+        width: vwp(350),
         height: vhp(511)
       }}>
-        <img src="/svg/Rectangle-266.svg" alt="Canvas background" style={{
+        <img src="/svg/Rectangle-267.svg" alt="Canvas background" style={{
           width: '100%',
           height: '100%',
           position: 'absolute',
@@ -831,7 +853,7 @@ export default function SVGBoilingAnimation() {
           position: 'absolute',
           left: vwp(3),
           top: vhp(10),
-          width: vwp(325),
+          width: vwp(315),
           height: vhp(445),
           zIndex: 1
         }}>
@@ -839,7 +861,7 @@ export default function SVGBoilingAnimation() {
             ref={animatedSvgRef}
             xmlns="http://www.w3.org/2000/svg"
             viewBox={scaledViewBox}
-            width="325"
+            width="315"
             height="445"
             preserveAspectRatio="xMidYMid meet"
             style={{ width: '100%', height: '100%' }}

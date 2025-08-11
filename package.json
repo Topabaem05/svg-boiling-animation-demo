@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev",
+    "dev": "NEXT_DIST_DIR=.next-dev next dev",
+    "dev:clean": "rimraf .next .next-dev && NEXT_DIST_DIR=.next-dev next dev",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start",
+    "clean": "rimraf .next .next-dev"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
