@@ -5,6 +5,20 @@ import type React from "react"
 import { useState, useRef, useEffect, useCallback } from "react"
 
 export default function SVGBoilingAnimation() {
+  const DESIGN_WIDTH = 393
+  const DESIGN_HEIGHT = 852
+  const vwp = (px: number) => `calc(${px} * 100dvw / ${DESIGN_WIDTH})`
+  const vhp = (px: number) => `calc(${px} * 100dvh / ${DESIGN_HEIGHT})`
+  const ANGLE_MAX = 350
+  const TREMOR_MIN = 0.001
+  const TREMOR_MAX = 0.050
+  const INTENSITY_MIN = 1.0
+  const INTENSITY_MAX = 20.0
+  const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
+  const valueToAngle = (val: number, min: number, max: number) => {
+    const frac = clamp((val - min) / (max - min), 0, 1)
+    return frac * ANGLE_MAX
+  }
   const [baseFrequency, setBaseFrequency] = useState(0.001)
   const [scale, setScale] = useState(1.0)
   const animationScale = 0.2 // 고정값으로 설정
@@ -20,8 +34,8 @@ export default function SVGBoilingAnimation() {
   const [originalWidth, setOriginalWidth] = useState(200)
   const [originalHeight, setOriginalHeight] = useState(200)
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
-  const [tremorValue, setTremorValue] = useState(0.001)
-  const [intensityValue, setIntensityValue] = useState(1.0)
+  const [tremorValue, setTremorValue] = useState(TREMOR_MIN)
+  const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
   const [isDragging, setIsDragging] = useState(false)
   const [isDragging2, setIsDragging2] = useState(false)
   const [currentRotation, setCurrentRotation] = useState(0)
@@ -522,6 +536,10 @@ export default function SVGBoilingAnimation() {
 
   // 컴포넌트 마운트 시 초기 설정
   useEffect(() => {
+    // 초기 각도를 값에 맞춰 0~350도로 설정
+    setCurrentRotation(valueToAngle(TREMOR_MIN, TREMOR_MIN, TREMOR_MAX))
+    setCurrentRotation2(valueToAngle(INTENSITY_MIN, INTENSITY_MIN, INTENSITY_MAX))
+
     // 초기 필터 적용
     const timer = setTimeout(() => {
       applyFilters()
@@ -557,8 +575,8 @@ export default function SVGBoilingAnimation() {
     
     if (dialNumber === 1) {
       // 떨림 다이얼 (0.001 - 0.050)
-      const minTremorValue = 0.001
-      const maxTremorValue = 0.050
+      const minTremorValue = TREMOR_MIN
+      const maxTremorValue = TREMOR_MAX
       const valueRange = maxTremorValue - minTremorValue
       const valueChange = (angleDiff / 360) * valueRange
       const newValue = tremorValue + valueChange
@@ -566,19 +584,24 @@ export default function SVGBoilingAnimation() {
       if (newValue <= minTremorValue) {
         newTremorValue = minTremorValue
         setTremorValue(minTremorValue)
+        // 각도도 0도로 설정
+        setCurrentRotation(0)
         if (angleDiff < 0) return false
       } else if (newValue >= maxTremorValue) {
         newTremorValue = maxTremorValue
         setTremorValue(maxTremorValue)
+        // 각도도 최댓값(350도)으로 설정
+        setCurrentRotation(ANGLE_MAX)
         if (angleDiff > 0) return false
       } else {
         newTremorValue = Math.max(0.0001, newValue) // 항상 양수 유지
         setTremorValue(newTremorValue)
+        setCurrentRotation(valueToAngle(newTremorValue, minTremorValue, maxTremorValue))
       }
     } else {
       // 강도 다이얼 (1.0 - 20.0)
-      const minIntensityValue = 1.0
-      const maxIntensityValue = 20.0
+      const minIntensityValue = INTENSITY_MIN
+      const maxIntensityValue = INTENSITY_MAX
       const valueRange = maxIntensityValue - minIntensityValue
       const valueChange = (angleDiff / 360) * valueRange
       const newValue = intensityValue + valueChange
@@ -587,16 +610,19 @@ export default function SVGBoilingAnimation() {
         newIntensityValue = minIntensityValue
         setIntensityValue(minIntensityValue)
         setScale(minIntensityValue)
+        setCurrentRotation2(0)
         if (angleDiff < 0) return false
       } else if (newValue >= maxIntensityValue) {
         newIntensityValue = maxIntensityValue
         setIntensityValue(maxIntensityValue)
         setScale(maxIntensityValue)
+        setCurrentRotation2(ANGLE_MAX)
         if (angleDiff > 0) return false
       } else {
         newIntensityValue = Math.max(0.1, newValue) // 최소값으로 클램핑
         setIntensityValue(newIntensityValue)
         setScale(newIntensityValue)
+        setCurrentRotation2(valueToAngle(newIntensityValue, minIntensityValue, maxIntensityValue))
       }
     }
     
@@ -640,6 +666,90 @@ export default function SVGBoilingAnimation() {
       setStartAngle2(getAngle(centerX, centerY, e.clientX, e.clientY))
     }
     e.preventDefault()
+  }
+
+  const handleTouchStart = (e: React.TouchEvent, dialNumber: number) => {
+    if (animationIntervalRef.current) {
+      clearInterval(animationIntervalRef.current)
+      animationIntervalRef.current = null
+    }
+    setIsAnimating(false)
+
+    const touch = e.touches[0]
+    if (!touch) return
+
+    if (dialNumber === 1) {
+      setIsDragging(true)
+      const rect = (e.target as HTMLElement).getBoundingClientRect()
+      const centerX = rect.left + rect.width / 2
+      const centerY = rect.top + rect.height / 2
+      setStartAngle(getAngle(centerX, centerY, touch.clientX, touch.clientY))
+    } else {
+      setIsDragging2(true)
+      const rect = (e.target as HTMLElement).getBoundingClientRect()
+      const centerX = rect.left + rect.width / 2
+      const centerY = rect.top + rect.height / 2
+      setStartAngle2(getAngle(centerX, centerY, touch.clientX, touch.clientY))
+    }
+    e.preventDefault()
+  }
+
+  const handleDocumentTouchMove = (e: TouchEvent) => {
+    const touch = e.touches[0]
+    if (!touch) return
+
+    if (isDragging) {
+      const volumeDial = document.getElementById('tremor-circle')
+      if (volumeDial) {
+        const rect = volumeDial.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+
+        const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
+        let angleDiff = currentAngle - startAngle
+
+        if (angleDiff > 180) angleDiff -= 360
+        if (angleDiff < -180) angleDiff += 360
+
+        if (updateTremorValue(angleDiff, 1)) {
+          setCurrentRotation(prev => prev + angleDiff)
+        }
+
+        setStartAngle(currentAngle)
+      }
+    }
+
+    if (isDragging2) {
+      const volumeDial2 = document.getElementById('tremor-circle-2')
+      if (volumeDial2) {
+        const rect = volumeDial2.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+
+        const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
+        let angleDiff = currentAngle - startAngle2
+
+        if (angleDiff > 180) angleDiff -= 360
+        if (angleDiff < -180) angleDiff += 360
+
+        if (updateTremorValue(angleDiff, 2)) {
+          setCurrentRotation2(prev => prev + angleDiff)
+        }
+
+        setStartAngle2(currentAngle)
+      }
+    }
+
+    e.preventDefault()
+  }
+
+  const handleDocumentTouchEnd = () => {
+    setIsDragging(false)
+    setIsDragging2(false)
+    setTimeout(() => {
+      applyFilters()
+    }, 10)
+    startAnimation()
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -703,10 +813,14 @@ export default function SVGBoilingAnimation() {
   useEffect(() => {
     document.addEventListener('mousemove', handleMouseMove as any)
     document.addEventListener('mouseup', handleMouseUp)
+    document.addEventListener('touchmove', handleDocumentTouchMove, { passive: false })
+    document.addEventListener('touchend', handleDocumentTouchEnd, { passive: false })
     
     return () => {
       document.removeEventListener('mousemove', handleMouseMove as any)
       document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('touchmove', handleDocumentTouchMove)
+      document.removeEventListener('touchend', handleDocumentTouchEnd)
     }
   }, [isDragging, isDragging2, startAngle, startAngle2, tremorValue, intensityValue])
 
@@ -714,41 +828,40 @@ export default function SVGBoilingAnimation() {
     <div style={{
       fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
       backgroundColor: '#FFB784',
-      width: '393px',
-      height: '852px',
-      margin: '0 auto',
+      width: '100dvw',
+      height: '100dvh',
       position: 'relative',
       overflow: 'hidden'
     }}>
       {/* Canvas Area */}
       <div style={{
         position: 'absolute',
-        left: '30px',
-        top: '74px',
-        width: '349px',
-        height: '511px'
+        left: vwp(30),
+        top: vhp(65),
+        width: vwp(350),
+        height: vhp(511)
       }}>
-        <img src="/svg/Rectangle-266.svg" alt="Canvas background" style={{
+        <img src="/svg/Rectangle-267.svg" alt="Canvas background" style={{
           width: '100%',
           height: '100%',
           position: 'absolute',
           zIndex: 0,
-          right: '10px',
-          bottom: '30px'
+          right: vwp(10),
+          bottom: vhp(30)
         }} />
         <div style={{
           position: 'absolute',
-          left: '3px',
-          top: '10px',
-          width: '325px',
-          height: '445px',
+          left: vwp(3),
+          top: vhp(10),
+          width: vwp(315),
+          height: vhp(445),
           zIndex: 1
         }}>
           <svg
             ref={animatedSvgRef}
             xmlns="http://www.w3.org/2000/svg"
             viewBox={scaledViewBox}
-            width="325"
+            width="315"
             height="445"
             preserveAspectRatio="xMidYMid meet"
             style={{ width: '100%', height: '100%' }}
@@ -760,18 +873,18 @@ export default function SVGBoilingAnimation() {
       {/* 볼륨 다이얼들 */}
       <div style={{
         position: 'absolute',
-        left: '50px',
-        top: '559px',
-        width: '290px',
-        height: '167px',
+        left: vwp(50),
+        top: vhp(559),
+        width: vwp(290),
+        height: vhp(167),
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
         {/* 첫 번째 다이얼 - 떨림 세기 */}
         <div style={{
-          width: '130px',
-          height: '130px',
+          width: vwp(130),
+          height: vwp(130),
           position: 'relative'
         }}>
           {/* Radial Elements */}
@@ -780,8 +893,8 @@ export default function SVGBoilingAnimation() {
             left: '50%',
             top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '85px',
-            height: '85px'
+            width: vwp(85),
+            height: vwp(85)
           }}>
             {Array.from({ length: 24 }, (_, i) => {
               const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345]
@@ -793,7 +906,7 @@ export default function SVGBoilingAnimation() {
                     top: '50%',
                     left: '50%',
                     transformOrigin: '50% 50%',
-                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(-60px)`
+                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
                   }}
                 >
                   <img src="/svg/Vector 98.svg" alt="Radial element" style={{ transform: 'scale(1.0)', display: 'block' }} />
@@ -807,8 +920,8 @@ export default function SVGBoilingAnimation() {
             left: '50%',
             top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '85px',
-            height: '85px',
+            width: vwp(85),
+            height: vwp(85),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -823,19 +936,21 @@ export default function SVGBoilingAnimation() {
                 height: '100%',
                 cursor: 'grab',
                 userSelect: 'none',
+                  touchAction: 'none',
                 transformOrigin: 'center center',
                 transform: `rotate(${currentRotation}deg)`,
                 filter: 'none'
               }}
               onMouseDown={(e) => handleMouseDown(e, 1)}
+                onTouchStart={(e) => handleTouchStart(e, 1)}
             />
           </div>
         </div>
         
         {/* 두 번째 다이얼 - 효과 강도 */}
         <div style={{
-          width: '130px',
-          height: '130px',
+          width: vwp(130),
+          height: vwp(130),
           position: 'relative'
         }}>
           {/* Radial Elements */}
@@ -844,8 +959,8 @@ export default function SVGBoilingAnimation() {
             left: '50%',
             top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '85px',
-            height: '85px'
+            width: vwp(85),
+            height: vwp(85)
           }}>
             {Array.from({ length: 24 }, (_, i) => {
               const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345]
@@ -857,7 +972,7 @@ export default function SVGBoilingAnimation() {
                     top: '50%',
                     left: '50%',
                     transformOrigin: '50% 50%',
-                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(-60px)`
+                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
                   }}
                 >
                   <img src="/svg/Vector 98.svg" alt="Radial element" style={{ transform: 'scale(1.0)', display: 'block' }} />
@@ -871,8 +986,8 @@ export default function SVGBoilingAnimation() {
             left: '50%',
             top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '85px',
-            height: '85px',
+            width: vwp(85),
+            height: vwp(85),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -887,11 +1002,13 @@ export default function SVGBoilingAnimation() {
                 height: '100%',
                 cursor: 'grab',
                 userSelect: 'none',
+                  touchAction: 'none',
                 transformOrigin: 'center center',
                 transform: `rotate(${currentRotation2}deg)`,
                 filter: 'none'
               }}
               onMouseDown={(e) => handleMouseDown(e, 2)}
+                onTouchStart={(e) => handleTouchStart(e, 2)}
             />
           </div>
         </div>
@@ -900,50 +1017,51 @@ export default function SVGBoilingAnimation() {
       {/* 텍스트 라벨들 */}
       <div style={{
         position: 'absolute',
-        left: '30px',
-        top: '740px',
-        fontSize: '25px',
+        left: vwp(30),
+        top: vhp(740),
+        fontSize: vwp(25),
         color: 'rgb(0, 0, 0)',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         lineHeight: 'normal',
-        width: '140px'
+        width: vwp(140)
       }}>
-        떨림 세기 : <span style={{ display: 'inline-block', width: '50px', textAlign: 'left', fontWeight: 'bold' }}>{tremorValue.toFixed(3)}</span>
+        떨림 세기 : <span style={{ display: 'inline-block', width: vwp(50), textAlign: 'left', fontWeight: 'bold' }}>{tremorValue.toFixed(3)}</span>
       </div>
       
       <div style={{
         position: 'absolute',
-        left: '220px',
-        top: '740px',
-        fontSize: '25px',
+        left: vwp(220),
+        top: vhp(740),
+        fontSize: vwp(25),
         color: 'rgb(0, 0, 0)',
         textAlign: 'center',
         whiteSpace: 'nowrap',
         lineHeight: 'normal',
-        width: '140px',
-        right: '0px'
+        width: vwp(140),
+        right: 0
       }}>
-        세기 강도 : <span style={{ display: 'inline-block', width: '40px', textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
+        세기 강도 : <span style={{ display: 'inline-block', width: vwp(40), textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
       </div>
 
       {/* 하단 툴바 */}
       <div style={{
         position: 'absolute',
-        left: '0',
-        top: '802px',
-        width: '393px',
-        height: '50px',
+        left: 0,
+        top: vhp(802),
+        width: '100dvw',
+        height: vhp(50),
         backgroundColor: '#303030',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 16px'
+        paddingLeft: vwp(16),
+        paddingRight: vwp(16)
       }}>
         <div 
           style={{
-            width: '32px',
-            height: '32px',
+            width: vwp(32),
+            height: vwp(32),
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -952,13 +1070,13 @@ export default function SVGBoilingAnimation() {
           onClick={() => fileInputRef.current?.click()}
           title="첨부"
         >
-          <img src="/svg/Paperclip.svg" alt="첨부" style={{ width: '32px', height: '32px' }} />
+          <img src="/svg/Paperclip.svg" alt="첨부" style={{ width: vwp(32), height: vwp(32) }} />
         </div>
         
         <div 
           style={{
-            width: '32px',
-            height: '32px',
+            width: vwp(32),
+            height: vwp(32),
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -966,13 +1084,13 @@ export default function SVGBoilingAnimation() {
           }}
           title="업로드"
         >
-          <img src="/svg/UploadSimple.svg" alt="업로드" style={{ width: '32px', height: '32px' }} />
+          <img src="/svg/UploadSimple.svg" alt="업로드" style={{ width: vwp(32), height: vwp(32) }} />
         </div>
         
         <div 
           style={{
-            width: '32px',
-            height: '32px',
+            width: vwp(32),
+            height: vwp(32),
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -980,7 +1098,7 @@ export default function SVGBoilingAnimation() {
           }}
           title="설정"
         >
-          <img src="/svg/Gear.svg" alt="설정" style={{ width: '32px', height: '32px' }} />
+          <img src="/svg/Gear.svg" alt="설정" style={{ width: vwp(32), height: vwp(32) }} />
         </div>
       </div>
 
