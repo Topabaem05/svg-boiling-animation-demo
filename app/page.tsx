@@ -11,8 +11,14 @@ const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(
 export default function SVGBoilingAnimation() {
   const DESIGN_WIDTH = 393
   const DESIGN_HEIGHT = 852
-  const vwp = (px: number) => `${(px / DESIGN_WIDTH) * 100}%`
-  const vhp = (px: number) => `${(px / DESIGN_HEIGHT) * 100}%`
+  const DESIGN_PADDING = 16
+  const CANVAS_AREA_WIDTH = 315
+  const CANVAS_AREA_HEIGHT = 445
+  const CANVAS_VIEWBOX_WIDTH = 315
+  const CANVAS_VIEWBOX_HEIGHT = 445
+  const CANVAS_UPLOAD_MAX_WIDTH = 310
+  const vwp = (px: number) => `${Math.round(px * viewportScale)}px`
+  const vhp = (px: number) => `${Math.round(px * viewportScale)}px`
   const ANGLE_MAX = 350
   const TREMOR_MIN = 0.001
   const TREMOR_MAX = 0.050
@@ -23,6 +29,9 @@ export default function SVGBoilingAnimation() {
     return frac * ANGLE_MAX
   }, [ANGLE_MAX])
   const [viewportScale, setViewportScale] = useState(1)
+  const scaledPadding = Math.round(DESIGN_PADDING * viewportScale)
+  const scaledDesignWidth = Math.round(DESIGN_WIDTH * viewportScale)
+  const scaledDesignHeight = Math.round(DESIGN_HEIGHT * viewportScale)
   const animationScale = 0.2 // 고정값으로 설정
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
@@ -51,8 +60,8 @@ export default function SVGBoilingAnimation() {
 
   useEffect(() => {
     const handleResize = () => {
-      const widthScale = window.innerWidth / DESIGN_WIDTH
-      const heightScale = window.innerHeight / DESIGN_HEIGHT
+      const widthScale = window.innerWidth / (DESIGN_WIDTH + DESIGN_PADDING * 2)
+      const heightScale = window.innerHeight / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
       setViewportScale(Math.min(widthScale, heightScale, 1))
     }
 
@@ -256,12 +265,10 @@ export default function SVGBoilingAnimation() {
         reader.onload = (e) => {
           const imgElement = document.createElement("img")
           imgElement.onload = () => {
-            // width가 310을 넘지 않도록 조정
-            const maxWidth = 310
+            const maxWidth = CANVAS_UPLOAD_MAX_WIDTH
              let scaledWidth = imgElement.width
              let scaledHeight = imgElement.height
             
-            // width가 310을 넘는 경우 비율을 유지하면서 스케일 조정
              if (imgElement.width > maxWidth) {
                const scaleRatio = maxWidth / imgElement.width
                scaledWidth = maxWidth
@@ -531,12 +538,11 @@ export default function SVGBoilingAnimation() {
 
   // Calculate scaled viewBox when dimensions change
   useEffect(() => {
-    const maxWidth = 310 // 최대 허용 너비
-    const viewBoxHeight = 415 // ViewBox 높이
+    const maxWidth = CANVAS_VIEWBOX_WIDTH // 최대 허용 너비
+    const viewBoxHeight = CANVAS_VIEWBOX_HEIGHT // ViewBox 높이
     let scaledWidth = originalWidth
     let scaledHeight = originalHeight
     
-    // width가 310을 넘는 경우 비율을 유지하면서 스케일 조정
     if (originalWidth > maxWidth) {
       const scaleRatio = maxWidth / originalWidth
       scaledWidth = maxWidth
@@ -889,22 +895,20 @@ export default function SVGBoilingAnimation() {
   ])
 
   return (
-    <div style={{
-      minHeight: '100dvh',
-      backgroundColor: '#FFB784',
-      display: 'grid',
-      placeItems: 'center',
-      padding: '16px',
-      overflow: 'hidden',
-      fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
-    }}>
       <div style={{
-        width: `${DESIGN_WIDTH}px`,
-        height: `${DESIGN_HEIGHT}px`,
-        position: 'relative',
-        transform: `scale(${viewportScale})`,
-        transformOrigin: 'top center',
+        minHeight: '100dvh',
+        backgroundColor: '#FFB784',
+        display: 'grid',
+        placeItems: 'center',
+        padding: `${scaledPadding}px`,
+        overflow: 'hidden',
+        fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
       }}>
+        <div style={{
+          width: `${scaledDesignWidth}px`,
+          height: `${scaledDesignHeight}px`,
+          position: 'relative',
+        }}>
       {/* Canvas Area */}
       <div style={{
         position: 'absolute',
@@ -925,16 +929,16 @@ export default function SVGBoilingAnimation() {
           position: 'absolute',
           left: vwp(3),
           top: vhp(10),
-          width: vwp(315),
-          height: vhp(445),
+          width: vwp(CANVAS_AREA_WIDTH),
+          height: vhp(CANVAS_AREA_HEIGHT),
           zIndex: 1
         }}>
           <svg
             ref={animatedSvgRef}
             xmlns="http://www.w3.org/2000/svg"
             viewBox={scaledViewBox}
-            width="315"
-            height="445"
+            width={CANVAS_AREA_WIDTH.toString()}
+            height={CANVAS_AREA_HEIGHT.toString()}
             preserveAspectRatio="xMidYMid meet"
             style={{ width: '100%', height: '100%' }}
             dangerouslySetInnerHTML={{ __html: svgContent }}
