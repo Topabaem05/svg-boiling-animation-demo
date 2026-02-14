@@ -4,23 +4,24 @@ import type React from "react"
 
 import { useState, useRef, useEffect, useCallback } from "react"
 
+const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
+const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
+
 export default function SVGBoilingAnimation() {
   const DESIGN_WIDTH = 393
   const DESIGN_HEIGHT = 852
-  const vwp = (px: number) => `calc(${px} * 100dvw / ${DESIGN_WIDTH})`
-  const vhp = (px: number) => `calc(${px} * 100dvh / ${DESIGN_HEIGHT})`
+  const vwp = (px: number) => `${(px / DESIGN_WIDTH) * 100}%`
+  const vhp = (px: number) => `${(px / DESIGN_HEIGHT) * 100}%`
   const ANGLE_MAX = 350
   const TREMOR_MIN = 0.001
   const TREMOR_MAX = 0.050
   const INTENSITY_MIN = 1.0
   const INTENSITY_MAX = 20.0
-  const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
-  const valueToAngle = (val: number, min: number, max: number) => {
+  const valueToAngle = useCallback((val: number, min: number, max: number) => {
     const frac = clamp((val - min) / (max - min), 0, 1)
     return frac * ANGLE_MAX
-  }
-  const [baseFrequency, setBaseFrequency] = useState(0.001)
-  const [scale, setScale] = useState(1.0)
+  }, [ANGLE_MAX])
+  const [viewportScale, setViewportScale] = useState(1)
   const animationScale = 0.2 // 고정값으로 설정
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
@@ -30,7 +31,6 @@ export default function SVGBoilingAnimation() {
     <circle cx="100" cy="100" r="30" fill="#e74c3c" stroke="#c0392b" strokeWidth="2"/>
     <line x1="60" y1="60" x2="140" y2="140" stroke="#f1c40f" strokeWidth="3"/>
   `)
-  const [originalViewBox, setOriginalViewBox] = useState("0 0 200 200")
   const [originalWidth, setOriginalWidth] = useState(200)
   const [originalHeight, setOriginalHeight] = useState(200)
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
@@ -48,7 +48,20 @@ export default function SVGBoilingAnimation() {
   const animationIntervalRef = useRef<number | null>(null)
   const currentIndexRef = useRef(0)
 
-  const offsetArray = [-0.02, 0.01, -0.01, 0.02]
+  useEffect(() => {
+    const handleResize = () => {
+      const widthScale = window.innerWidth / DESIGN_WIDTH
+      const heightScale = window.innerHeight / DESIGN_HEIGHT
+      setViewportScale(Math.min(widthScale, heightScale, 1))
+    }
+
+    handleResize()
+    window.addEventListener("resize", handleResize)
+
+    return () => {
+      window.removeEventListener("resize", handleResize)
+    }
+  }, [])
 
   const applyFilters = useCallback(() => {
     const svg = animatedSvgRef.current
@@ -112,7 +125,7 @@ export default function SVGBoilingAnimation() {
     const svg = animatedSvgRef.current
     if (!svg) return
 
-    const offset = offsetArray[currentIndexRef.current]
+    const offset = OFFSET_ARRAY[currentIndexRef.current]
     let newBaseFrequency = tremorValue + offset * animationScale
 
     // 항상 양수 유지
@@ -128,18 +141,18 @@ export default function SVGBoilingAnimation() {
       displacement.setAttribute("scale", intensityValue.toString())
     }
 
-    currentIndexRef.current = (currentIndexRef.current + 1) % offsetArray.length
+    currentIndexRef.current = (currentIndexRef.current + 1) % OFFSET_ARRAY.length
   }, [tremorValue, intensityValue, animationScale])
 
-  const startAnimation = () => {
+  const startAnimation = useCallback(() => {
     if (animationIntervalRef.current) {
       clearInterval(animationIntervalRef.current)
     }
     animationIntervalRef.current = window.setInterval(updateAnimation, animationSpeed)
     setIsAnimating(true)
-  }
+  }, [animationSpeed, updateAnimation])
 
-  const stopAnimation = () => {
+  const stopAnimation = useCallback(() => {
     if (animationIntervalRef.current) {
       clearInterval(animationIntervalRef.current)
       animationIntervalRef.current = null
@@ -161,7 +174,7 @@ export default function SVGBoilingAnimation() {
         }
       }
     }, 10)
-  }
+  }, [intensityValue, tremorValue])
 
   const resetValues = () => {
     setTremorValue(0.001)
@@ -172,6 +185,7 @@ export default function SVGBoilingAnimation() {
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    resetValues()
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -191,8 +205,7 @@ export default function SVGBoilingAnimation() {
           setSvgContent(svgElement.innerHTML)
           
           // Extract viewBox, width, and height
-          const viewBox = svgElement.getAttribute("viewBox") || "0 0 200 200"
-          setOriginalViewBox(viewBox)
+            const viewBox = svgElement.getAttribute("viewBox") || "0 0 200 200"
           
           const width = svgElement.getAttribute("width")
           const height = svgElement.getAttribute("height")
@@ -278,7 +291,7 @@ export default function SVGBoilingAnimation() {
               // Set dimensions based on scaled image
               setOriginalWidth(scaledWidth)
               setOriginalHeight(scaledHeight)
-              setOriginalViewBox(`0 0 ${scaledWidth} ${scaledHeight}`)
+            setScaledViewBox(`0 0 ${scaledWidth} ${scaledHeight}`)
             }
           }
           img.src = e.target?.result as string
@@ -366,9 +379,9 @@ export default function SVGBoilingAnimation() {
       const ctx = canvas.getContext("2d")
       if (!ctx) return
 
-      // Create only 3 frames for GIF (3fps pattern)
-      const frameCount = 3
-      const selectedOffsets = [offsetArray[0], offsetArray[1], offsetArray[2]] // Use first 3 offsets
+        // Create only 3 frames for GIF (3fps pattern)
+        const frameCount = 3
+        const selectedOffsets = [OFFSET_ARRAY[0], OFFSET_ARRAY[1], OFFSET_ARRAY[2]] // Use first 3 offsets
 
       // Helper function to wait for next animation frame
       const waitForFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
@@ -457,7 +470,7 @@ export default function SVGBoilingAnimation() {
 
   const exportAnimatedSVG = () => {
     // Convert animationSpeed to seconds for SVG animation
-    const animationDuration = (animationSpeed * offsetArray.length) / 1000
+    const animationDuration = (animationSpeed * OFFSET_ARRAY.length) / 1000
 
     // Use the same scaled viewBox as the animation canvas
     const exportWidth = 500
@@ -465,11 +478,11 @@ export default function SVGBoilingAnimation() {
     const exportViewBox = scaledViewBox
 
     // 애니메이션 값에서도 항상 양수 유지
-    const animatedValues = offsetArray.map(offset => {
+    const animatedValues = OFFSET_ARRAY.map((offset) => {
       let val = tremorValue + offset * animationScale
       val = Math.max(0.0001, val)
       return val
-    }).join(';') + `;${Math.max(0.0001, tremorValue + offsetArray[0] * animationScale)}`
+    }).join(';') + `;${Math.max(0.0001, tremorValue + OFFSET_ARRAY[0] * animationScale)}`
 
     // Create animated SVG with SMIL animations
     const animatedSvgContent = `
@@ -550,26 +563,24 @@ export default function SVGBoilingAnimation() {
 
     return () => {
       clearTimeout(timer)
-      if (animationIntervalRef.current) {
-        clearInterval(animationIntervalRef.current)
-      }
+      stopAnimation()
     }
-  }, [])
+  }, [applyFilters, startAnimation, stopAnimation, valueToAngle])
 
   useEffect(() => {
     if (isAnimating) {
       startAnimation()
     }
-  }, [animationSpeed, updateAnimation])
+  }, [animationSpeed, isAnimating, startAnimation])
 
   // 볼륨 다이얼 관련 함수들
-  const getAngle = (centerX: number, centerY: number, clientX: number, clientY: number) => {
+  const getAngle = useCallback((centerX: number, centerY: number, clientX: number, clientY: number) => {
     const deltaX = clientX - centerX
     const deltaY = clientY - centerY
     return Math.atan2(deltaY, deltaX) * (180 / Math.PI)
-  }
+  }, [])
 
-  const updateTremorValue = (angleDiff: number, dialNumber = 1) => {
+  const updateTremorValue = useCallback((angleDiff: number, dialNumber = 1) => {
     let newTremorValue = tremorValue
     let newIntensityValue = intensityValue
     
@@ -609,19 +620,16 @@ export default function SVGBoilingAnimation() {
       if (newValue <= minIntensityValue) {
         newIntensityValue = minIntensityValue
         setIntensityValue(minIntensityValue)
-        setScale(minIntensityValue)
         setCurrentRotation2(0)
         if (angleDiff < 0) return false
       } else if (newValue >= maxIntensityValue) {
         newIntensityValue = maxIntensityValue
         setIntensityValue(maxIntensityValue)
-        setScale(maxIntensityValue)
         setCurrentRotation2(ANGLE_MAX)
         if (angleDiff > 0) return false
       } else {
         newIntensityValue = Math.max(0.1, newValue) // 최소값으로 클램핑
         setIntensityValue(newIntensityValue)
-        setScale(newIntensityValue)
         setCurrentRotation2(valueToAngle(newIntensityValue, minIntensityValue, maxIntensityValue))
       }
     }
@@ -640,17 +648,13 @@ export default function SVGBoilingAnimation() {
         }
       }
     }
-    
+
     return true
-  }
+  }, [ANGLE_MAX, INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, intensityValue, tremorValue, valueToAngle])
 
   const handleMouseDown = (e: React.MouseEvent, dialNumber: number) => {
     // 애니메이션만 중지, 필터는 유지
-    if (animationIntervalRef.current) {
-      clearInterval(animationIntervalRef.current)
-      animationIntervalRef.current = null
-    }
-    setIsAnimating(false)
+    stopAnimation()
     
     if (dialNumber === 1) {
       setIsDragging(true)
@@ -668,12 +672,8 @@ export default function SVGBoilingAnimation() {
     e.preventDefault()
   }
 
-  const handleTouchStart = (e: React.TouchEvent, dialNumber: number) => {
-    if (animationIntervalRef.current) {
-      clearInterval(animationIntervalRef.current)
-      animationIntervalRef.current = null
-    }
-    setIsAnimating(false)
+  const handleTouchStart = useCallback((e: React.TouchEvent, dialNumber: number) => {
+    stopAnimation()
 
     const touch = e.touches[0]
     if (!touch) return
@@ -692,9 +692,9 @@ export default function SVGBoilingAnimation() {
       setStartAngle2(getAngle(centerX, centerY, touch.clientX, touch.clientY))
     }
     e.preventDefault()
-  }
+  }, [getAngle, stopAnimation])
 
-  const handleDocumentTouchMove = (e: TouchEvent) => {
+  const handleDocumentTouchMove = useCallback((e: TouchEvent) => {
     const touch = e.touches[0]
     if (!touch) return
 
@@ -741,98 +741,111 @@ export default function SVGBoilingAnimation() {
     }
 
     e.preventDefault()
-  }
+  }, [getAngle, isDragging, isDragging2, startAngle, startAngle2, updateTremorValue])
 
-  const handleDocumentTouchEnd = () => {
+  const handleDocumentTouchEnd = useCallback(() => {
     setIsDragging(false)
     setIsDragging2(false)
     setTimeout(() => {
       applyFilters()
     }, 10)
     startAnimation()
-  }
+  }, [applyFilters, startAnimation])
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleDocumentMouseMove = useCallback((event: MouseEvent) => {
     if (isDragging) {
       const volumeDial = document.getElementById('tremor-circle')
       if (volumeDial) {
         const rect = volumeDial.getBoundingClientRect()
         const centerX = rect.left + rect.width / 2
         const centerY = rect.top + rect.height / 2
-        
-        const currentAngle = getAngle(centerX, centerY, e.clientX, e.clientY)
+
+        const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
         let angleDiff = currentAngle - startAngle
-        
+
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
-        
+
         if (updateTremorValue(angleDiff, 1)) {
           setCurrentRotation(prev => prev + angleDiff)
         }
-        
+
         setStartAngle(currentAngle)
       }
     }
-    
+
     if (isDragging2) {
       const volumeDial2 = document.getElementById('tremor-circle-2')
       if (volumeDial2) {
         const rect = volumeDial2.getBoundingClientRect()
         const centerX = rect.left + rect.width / 2
         const centerY = rect.top + rect.height / 2
-        
-        const currentAngle = getAngle(centerX, centerY, e.clientX, e.clientY)
+
+        const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
         let angleDiff = currentAngle - startAngle2
-        
+
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
-        
+
         if (updateTremorValue(angleDiff, 2)) {
           setCurrentRotation2(prev => prev + angleDiff)
         }
-        
+
         setStartAngle2(currentAngle)
       }
     }
-  }
+  }, [getAngle, isDragging, isDragging2, startAngle, startAngle2, updateTremorValue])
 
-  const handleMouseUp = () => {
+  const handleDocumentMouseUp = useCallback(() => {
     setIsDragging(false)
     setIsDragging2(false)
-    
+
     // 드래그 종료 후 전체 필터를 다시 적용하여 지속성 보장
     setTimeout(() => {
       applyFilters()
     }, 10) // 짧은 지연으로 상태 업데이트 완료 후 적용
-    
+
     // 애니메이션 재시작
-    startAnimation();
-  }
+    startAnimation()
+  }, [applyFilters, startAnimation])
 
   // 마우스 이벤트 리스너 추가
   useEffect(() => {
-    document.addEventListener('mousemove', handleMouseMove as any)
-    document.addEventListener('mouseup', handleMouseUp)
+    document.addEventListener('mousemove', handleDocumentMouseMove)
+    document.addEventListener('mouseup', handleDocumentMouseUp)
     document.addEventListener('touchmove', handleDocumentTouchMove, { passive: false })
     document.addEventListener('touchend', handleDocumentTouchEnd, { passive: false })
-    
+
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove as any)
-      document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('mousemove', handleDocumentMouseMove)
+      document.removeEventListener('mouseup', handleDocumentMouseUp)
       document.removeEventListener('touchmove', handleDocumentTouchMove)
       document.removeEventListener('touchend', handleDocumentTouchEnd)
     }
-  }, [isDragging, isDragging2, startAngle, startAngle2, tremorValue, intensityValue])
+  }, [
+    handleDocumentMouseMove,
+    handleDocumentMouseUp,
+    handleDocumentTouchMove,
+    handleDocumentTouchEnd,
+  ])
 
   return (
     <div style={{
-      fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
+      minHeight: '100dvh',
       backgroundColor: '#FFB784',
-      width: '100dvw',
-      height: '100dvh',
-      position: 'relative',
-      overflow: 'hidden'
+      display: 'grid',
+      placeItems: 'center',
+      padding: '16px',
+      overflow: 'hidden',
+      fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
     }}>
+      <div style={{
+        width: `${DESIGN_WIDTH}px`,
+        height: `${DESIGN_HEIGHT}px`,
+        position: 'relative',
+        transform: `scale(${viewportScale})`,
+        transformOrigin: 'top center',
+      }}>
       {/* Canvas Area */}
       <div style={{
         position: 'absolute',
@@ -1049,7 +1062,7 @@ export default function SVGBoilingAnimation() {
         position: 'absolute',
         left: 0,
         top: vhp(802),
-        width: '100dvw',
+        width: '100%',
         height: vhp(50),
         backgroundColor: '#303030',
         display: 'flex',
@@ -1077,12 +1090,17 @@ export default function SVGBoilingAnimation() {
           style={{
             width: vwp(32),
             height: vwp(32),
-            cursor: 'pointer',
+            cursor: isExporting ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            opacity: isExporting ? 0.5 : 1,
           }}
-          title="업로드"
+          onClick={() => {
+            if (isExporting) return
+            exportAsGIF()
+          }}
+          title="GIF 저장"
         >
           <img src="/svg/UploadSimple.svg" alt="업로드" style={{ width: vwp(32), height: vwp(32) }} />
         </div>
@@ -1096,7 +1114,10 @@ export default function SVGBoilingAnimation() {
             alignItems: 'center',
             justifyContent: 'center'
           }}
-          title="설정"
+          onClick={() => {
+            exportAnimatedSVG()
+          }}
+          title="애니메이션 SVG 저장"
         >
           <img src="/svg/Gear.svg" alt="설정" style={{ width: vwp(32), height: vwp(32) }} />
         </div>
@@ -1104,6 +1125,7 @@ export default function SVGBoilingAnimation() {
 
       {/* 숨겨진 파일 입력 */}
       <input ref={fileInputRef} type="file" accept=".svg,.png,.jpg,.jpeg" onChange={handleFileUpload} style={{ display: 'none' }} />
+    </div>
     </div>
   )
 }
