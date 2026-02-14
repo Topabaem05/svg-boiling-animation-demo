@@ -2,6 +2,7 @@
 
 import type React from "react"
 
+import NextImage from "next/image"
 import { useState, useRef, useEffect, useCallback } from "react"
 
 const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
@@ -238,19 +239,19 @@ export default function SVGBoilingAnimation() {
 
         const reader = new FileReader()
         reader.onload = (e) => {
-          const img = new Image()
-          img.onload = () => {
+          const imgElement = document.createElement("img")
+          imgElement.onload = () => {
             // width가 310을 넘지 않도록 조정
             const maxWidth = 310
-            let scaledWidth = img.width
-            let scaledHeight = img.height
+             let scaledWidth = imgElement.width
+             let scaledHeight = imgElement.height
             
             // width가 310을 넘는 경우 비율을 유지하면서 스케일 조정
-            if (img.width > maxWidth) {
-              const scaleRatio = maxWidth / img.width
-              scaledWidth = maxWidth
-              scaledHeight = img.height * scaleRatio
-            }
+             if (imgElement.width > maxWidth) {
+               const scaleRatio = maxWidth / imgElement.width
+               scaledWidth = maxWidth
+               scaledHeight = imgElement.height * scaleRatio
+             }
             
             // Create canvas to get image data
             const canvas = document.createElement('canvas')
@@ -259,7 +260,7 @@ export default function SVGBoilingAnimation() {
 
             canvas.width = scaledWidth
             canvas.height = scaledHeight
-            ctx.drawImage(img, 0, 0, scaledWidth, scaledHeight)
+            ctx.drawImage(imgElement, 0, 0, scaledWidth, scaledHeight)
             
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
             
@@ -294,7 +295,7 @@ export default function SVGBoilingAnimation() {
             setScaledViewBox(`0 0 ${scaledWidth} ${scaledHeight}`)
             }
           }
-          img.src = e.target?.result as string
+          imgElement.src = e.target?.result as string
         }
         reader.readAsDataURL(file)
       } catch (error) {
@@ -415,18 +416,18 @@ export default function SVGBoilingAnimation() {
         const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" })
         const url = URL.createObjectURL(svgBlob)
 
-        const img = new Image()
-        img.crossOrigin = "anonymous"
+        const imgElement = document.createElement("img")
+        imgElement.crossOrigin = "anonymous"
 
         await new Promise<void>((resolve, reject) => {
-          img.onload = () => {
+          imgElement.onload = () => {
             try {
               ctx.clearRect(0, 0, canvas.width, canvas.height)
               // 흰색 배경을 300x300 영역에만 적용
               ctx.fillStyle = "white"
               ctx.fillRect(0, 0, 300, 300)
               // SVG를 300x300 영역에 맞춰 그림
-              ctx.drawImage(img, 0, 0, 300, 300)
+              ctx.drawImage(imgElement, 0, 0, 300, 300)
 
               // Add frame to GIF
               gif.addFrame(canvas, { delay: animationSpeed, copy: true })
@@ -436,11 +437,11 @@ export default function SVGBoilingAnimation() {
               reject(error)
             }
           }
-          img.onerror = () => {
+          imgElement.onerror = () => {
             URL.revokeObjectURL(url)
             reject(new Error("Failed to load image"))
           }
-          img.src = url
+            imgElement.src = url
         })
 
         // Update progress
@@ -854,7 +855,7 @@ export default function SVGBoilingAnimation() {
         width: vwp(350),
         height: vhp(511)
       }}>
-        <img src="/svg/Rectangle-267.svg" alt="Canvas background" style={{
+        <NextImage src="/svg/Rectangle-267.svg" alt="Canvas background" width={378} height={519} style={{
           width: '100%',
           height: '100%',
           position: 'absolute',
@@ -922,7 +923,7 @@ export default function SVGBoilingAnimation() {
                     transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
                   }}
                 >
-                  <img src="/svg/Vector 98.svg" alt="Radial element" style={{ transform: 'scale(1.0)', display: 'block' }} />
+              <NextImage src="/svg/Vector 98.svg" alt="Radial element" width={5} height={19} style={{ transform: 'scale(1.0)', display: 'block' }} />
                 </div>
               )
             })}
@@ -940,10 +941,12 @@ export default function SVGBoilingAnimation() {
             justifyContent: 'center',
             zIndex: 100
           }}>
-            <img 
+            <NextImage 
               id="tremor-circle"
               src="/svg/Group 241.svg" 
               alt="Tremor circle" 
+              width={116}
+              height={117}
               style={{
                 width: '100%',
                 height: '100%',
@@ -988,7 +991,7 @@ export default function SVGBoilingAnimation() {
                     transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
                   }}
                 >
-                  <img src="/svg/Vector 98.svg" alt="Radial element" style={{ transform: 'scale(1.0)', display: 'block' }} />
+              <NextImage src="/svg/Vector 98.svg" alt="Radial element" width={5} height={19} style={{ transform: 'scale(1.0)', display: 'block' }} />
                 </div>
               )
             })}
@@ -1006,10 +1009,12 @@ export default function SVGBoilingAnimation() {
             justifyContent: 'center',
             zIndex: 100
           }}>
-            <img 
+            <NextImage 
               id="tremor-circle-2"
               src="/svg/Group 241-4.svg" 
               alt="Intensity circle" 
+              width={116}
+              height={117}
               style={{
                 width: '100%',
                 height: '100%',
@@ -1083,7 +1088,7 @@ export default function SVGBoilingAnimation() {
           onClick={() => fileInputRef.current?.click()}
           title="첨부"
         >
-          <img src="/svg/Paperclip.svg" alt="첨부" style={{ width: vwp(32), height: vwp(32) }} />
+          <NextImage src="/svg/Paperclip.svg" alt="첨부" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
         </div>
         
         <div 
@@ -1102,7 +1107,7 @@ export default function SVGBoilingAnimation() {
           }}
           title="GIF 저장"
         >
-          <img src="/svg/UploadSimple.svg" alt="업로드" style={{ width: vwp(32), height: vwp(32) }} />
+          <NextImage src="/svg/UploadSimple.svg" alt="업로드" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
         </div>
         
         <div 
@@ -1119,7 +1124,7 @@ export default function SVGBoilingAnimation() {
           }}
           title="애니메이션 SVG 저장"
         >
-          <img src="/svg/Gear.svg" alt="설정" style={{ width: vwp(32), height: vwp(32) }} />
+          <NextImage src="/svg/Gear.svg" alt="설정" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
         </div>
       </div>
 
