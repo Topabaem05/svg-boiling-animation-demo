@@ -145,6 +145,21 @@ export default function SVGBoilingAnimation() {
     currentIndexRef.current = (currentIndexRef.current + 1) % OFFSET_ARRAY.length
   }, [tremorValue, intensityValue, animationScale])
 
+  const syncDialFilterValues = useCallback((nextTremorValue: number, nextIntensityValue: number) => {
+    const svg = animatedSvgRef.current
+    if (!svg) return
+
+    const turbulence = svg.querySelector("feTurbulence")
+    const displacement = svg.querySelector("feDisplacementMap")
+
+    if (turbulence) {
+      turbulence.setAttribute("baseFrequency", Math.max(0.0001, nextTremorValue).toString())
+    }
+    if (displacement) {
+      displacement.setAttribute("scale", Math.max(INTENSITY_MIN, nextIntensityValue).toString())
+    }
+  }, [INTENSITY_MIN])
+
   const startAnimation = useCallback(() => {
     if (animationIntervalRef.current) {
       clearInterval(animationIntervalRef.current)
@@ -581,6 +596,21 @@ export default function SVGBoilingAnimation() {
     return Math.atan2(deltaY, deltaX) * (180 / Math.PI)
   }, [])
 
+  const updateDialFromValues = useCallback((dialNumber: 1 | 2, nextValue: number) => {
+    if (dialNumber === 1) {
+      const clamped = clamp(nextValue, TREMOR_MIN, TREMOR_MAX)
+      setTremorValue(clamped)
+      setCurrentRotation(valueToAngle(clamped, TREMOR_MIN, TREMOR_MAX))
+      syncDialFilterValues(clamped, intensityValue)
+      return
+    }
+
+    const clamped = clamp(nextValue, INTENSITY_MIN, INTENSITY_MAX)
+    setIntensityValue(clamped)
+    setCurrentRotation2(valueToAngle(clamped, INTENSITY_MIN, INTENSITY_MAX))
+    syncDialFilterValues(tremorValue, clamped)
+  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, intensityValue, syncDialFilterValues, tremorValue, valueToAngle])
+
   const updateTremorValue = useCallback((angleDiff: number, dialNumber = 1) => {
     let newTremorValue = tremorValue
     let newIntensityValue = intensityValue
@@ -636,22 +666,50 @@ export default function SVGBoilingAnimation() {
     }
     
     // 즉시 필터 업데이트 (드래그 중 실시간 반영)
-    const svg = animatedSvgRef.current
-    if (svg) {
-      const turbulence = svg.querySelector("feTurbulence")
-      const displacement = svg.querySelector("feDisplacementMap")
-      
-      if (turbulence && displacement) {
-        if (dialNumber === 1) {
-          turbulence.setAttribute("baseFrequency", Math.max(0.0001, newTremorValue).toString())
-        } else {
-          displacement.setAttribute("scale", newIntensityValue.toString())
-        }
-      }
-    }
+    syncDialFilterValues(newTremorValue, newIntensityValue)
 
     return true
-  }, [ANGLE_MAX, INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, intensityValue, tremorValue, valueToAngle])
+  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, intensityValue, syncDialFilterValues, tremorValue, valueToAngle])
+
+  const DIAL_KEY_STEP = 10
+
+  const handleDialKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
+    const isTremorDial = dialNumber === 1
+    if (
+      event.key === "ArrowLeft" ||
+      event.key === "ArrowDown" ||
+      event.key === "ArrowRight" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
+      event.preventDefault()
+      stopAnimation()
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      updateTremorValue(-DIAL_KEY_STEP, dialNumber)
+      startAnimation()
+      return
+    }
+
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      updateTremorValue(DIAL_KEY_STEP, dialNumber)
+      startAnimation()
+      return
+    }
+
+    if (event.key === "Home") {
+      updateDialFromValues(dialNumber, isTremorDial ? TREMOR_MIN : INTENSITY_MIN)
+      startAnimation()
+      return
+    }
+
+    if (event.key === "End") {
+      updateDialFromValues(dialNumber, isTremorDial ? TREMOR_MAX : INTENSITY_MAX)
+      startAnimation()
+    }
+  }, [startAnimation, stopAnimation, updateDialFromValues, updateTremorValue])
 
   const handleMouseDown = (e: React.MouseEvent, dialNumber: number) => {
     // 애니메이션만 중지, 필터는 유지
@@ -941,25 +999,41 @@ export default function SVGBoilingAnimation() {
             justifyContent: 'center',
             zIndex: 100
           }}>
-            <NextImage 
+            <button
               id="tremor-circle"
-              src="/svg/Group 241.svg" 
-              alt="Tremor circle" 
-              width={116}
-              height={117}
+              type="button"
+              className="control-button"
+              role="slider"
+              aria-label="떨림 세기 조절"
+              aria-describedby="tremor-value"
+              aria-valuemin={TREMOR_MIN}
+              aria-valuemax={TREMOR_MAX}
+              aria-valuenow={tremorValue}
+              onMouseDown={(e) => handleMouseDown(e, 1)}
+              onTouchStart={(e) => handleTouchStart(e, 1)}
+              onKeyDown={(e) => handleDialKeyDown(e, 1)}
               style={{
                 width: '100%',
                 height: '100%',
                 cursor: 'grab',
                 userSelect: 'none',
-                  touchAction: 'none',
-                transformOrigin: 'center center',
-                transform: `rotate(${currentRotation}deg)`,
-                filter: 'none'
+                touchAction: 'none',
               }}
-              onMouseDown={(e) => handleMouseDown(e, 1)}
-                onTouchStart={(e) => handleTouchStart(e, 1)}
-            />
+            >
+              <NextImage 
+                src="/svg/Group 241.svg" 
+                alt="Tremor circle" 
+                width={116}
+                height={117}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  transformOrigin: 'center center',
+                  transform: `rotate(${currentRotation}deg)`,
+                  filter: 'none'
+                }}
+              />
+            </button>
           </div>
         </div>
         
@@ -1009,25 +1083,41 @@ export default function SVGBoilingAnimation() {
             justifyContent: 'center',
             zIndex: 100
           }}>
-            <NextImage 
+            <button
               id="tremor-circle-2"
-              src="/svg/Group 241-4.svg" 
-              alt="Intensity circle" 
-              width={116}
-              height={117}
+              type="button"
+              className="control-button"
+              role="slider"
+              aria-label="강도 조절"
+              aria-describedby="intensity-value"
+              aria-valuemin={INTENSITY_MIN}
+              aria-valuemax={INTENSITY_MAX}
+              aria-valuenow={intensityValue}
+              onMouseDown={(e) => handleMouseDown(e, 2)}
+              onTouchStart={(e) => handleTouchStart(e, 2)}
+              onKeyDown={(e) => handleDialKeyDown(e, 2)}
               style={{
                 width: '100%',
                 height: '100%',
                 cursor: 'grab',
                 userSelect: 'none',
-                  touchAction: 'none',
-                transformOrigin: 'center center',
-                transform: `rotate(${currentRotation2}deg)`,
-                filter: 'none'
+                touchAction: 'none',
               }}
-              onMouseDown={(e) => handleMouseDown(e, 2)}
-                onTouchStart={(e) => handleTouchStart(e, 2)}
-            />
+            >
+              <NextImage 
+                src="/svg/Group 241-4.svg" 
+                alt="Intensity circle" 
+                width={116}
+                height={117}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  transformOrigin: 'center center',
+                  transform: `rotate(${currentRotation2}deg)`,
+                  filter: 'none'
+                }}
+              />
+            </button>
           </div>
         </div>
       </div>
@@ -1044,7 +1134,7 @@ export default function SVGBoilingAnimation() {
         lineHeight: 'normal',
         width: vwp(140)
       }}>
-        떨림 세기 : <span style={{ display: 'inline-block', width: vwp(50), textAlign: 'left', fontWeight: 'bold' }}>{tremorValue.toFixed(3)}</span>
+        떨림 세기 : <span id="tremor-value" role="status" aria-live="polite" style={{ display: 'inline-block', width: vwp(50), textAlign: 'left', fontWeight: 'bold' }}>{tremorValue.toFixed(3)}</span>
       </div>
       
       <div style={{
@@ -1059,7 +1149,7 @@ export default function SVGBoilingAnimation() {
         width: vwp(140),
         right: 0
       }}>
-        세기 강도 : <span style={{ display: 'inline-block', width: vwp(40), textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
+        세기 강도 : <span id="intensity-value" role="status" aria-live="polite" style={{ display: 'inline-block', width: vwp(40), textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
       </div>
 
       {/* 하단 툴바 */}
@@ -1076,7 +1166,9 @@ export default function SVGBoilingAnimation() {
         paddingLeft: vwp(16),
         paddingRight: vwp(16)
       }}>
-        <div 
+        <button
+          type="button"
+          className="toolbar-button"
           style={{
             width: vwp(32),
             height: vwp(32),
@@ -1087,11 +1179,15 @@ export default function SVGBoilingAnimation() {
           }}
           onClick={() => fileInputRef.current?.click()}
           title="첨부"
+          aria-label="첨부 파일 업로드"
         >
           <NextImage src="/svg/Paperclip.svg" alt="첨부" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
-        </div>
+        </button>
         
-        <div 
+        <button
+          type="button"
+          className="toolbar-button"
+          disabled={isExporting}
           style={{
             width: vwp(32),
             height: vwp(32),
@@ -1106,11 +1202,14 @@ export default function SVGBoilingAnimation() {
             exportAsGIF()
           }}
           title="GIF 저장"
+          aria-label="GIF 파일로 저장"
         >
           <NextImage src="/svg/UploadSimple.svg" alt="업로드" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
-        </div>
+        </button>
         
-        <div 
+        <button
+          type="button"
+          className="toolbar-button"
           style={{
             width: vwp(32),
             height: vwp(32),
@@ -1123,9 +1222,10 @@ export default function SVGBoilingAnimation() {
             exportAnimatedSVG()
           }}
           title="애니메이션 SVG 저장"
+          aria-label="애니메이션 SVG로 저장"
         >
           <NextImage src="/svg/Gear.svg" alt="설정" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
-        </div>
+        </button>
       </div>
 
       {/* 숨겨진 파일 입력 */}

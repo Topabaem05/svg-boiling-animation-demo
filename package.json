@@ -6,7 +6,9 @@
     "build": "next build",
     "dev": "NEXT_DIST_DIR=.next-dev next dev",
     "dev:clean": "rimraf .next .next-dev && NEXT_DIST_DIR=.next-dev next dev",
+    "typecheck": "bun run build && bunx tsc --noEmit",
     "lint": "next lint",
+    "verify": "bun run lint && bun run typecheck",
     "start": "next start",
     "clean": "rimraf .next .next-dev"
   },
