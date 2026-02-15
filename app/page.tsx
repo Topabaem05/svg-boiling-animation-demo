@@ -670,51 +670,6 @@ export default function SVGBoilingAnimation() {
     }
   }
 
-  const exportAnimatedSVG = () => {
-    // Convert animationSpeed to seconds for SVG animation
-    const animationDuration = (animationSpeed * OFFSET_ARRAY.length) / 1000
-
-    // Use the same scaled viewBox as the animation canvas
-    const exportWidth = 500
-    const exportHeight = 500
-    const exportViewBox = scaledViewBox
-
-    // 애니메이션 값에서도 항상 양수 유지
-    const animatedValues = OFFSET_ARRAY.map((offset) => {
-      let val = tremorValue + offset * animationScale
-      val = Math.max(0.0001, val)
-      return val
-    }).join(';') + `;${Math.max(0.0001, tremorValue + OFFSET_ARRAY[0] * animationScale)}`
-
-    // Create animated SVG with SMIL animations
-    const animatedSvgContent = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="${exportViewBox}" width="${exportWidth}" height="${exportHeight}" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <filter id="boilingFilter" x="-50%" y="-50%" width="200%" height="200%">
-          <feTurbulence type="turbulence" baseFrequency="${Math.max(0.0001, tremorValue)}" numOctaves="2" result="noise">
-            <animate attributeName="baseFrequency" 
-              values="${animatedValues}"
-              dur="${animationDuration}s" 
-              repeatCount="indefinite"/>
-          </feTurbulence>
-          <feDisplacementMap in="SourceGraphic" in2="noise" scale="${intensityValue}" xChannelSelector="R" yChannelSelector="G"/>
-        </filter>
-      </defs>
-      <g filter="url(#boilingFilter)">
-        ${svgContent}
-      </g>
-    </svg>
-  `
-
-    const blob = new Blob([animatedSvgContent], { type: "image/svg+xml" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "animated-boiling.svg"
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   // Calculate scaled viewBox when dimensions change
   useEffect(() => {
     const maxWidth = CANVAS_VIEWBOX_WIDTH // 최대 허용 너비
@@ -1413,6 +1368,8 @@ export default function SVGBoilingAnimation() {
                   height: '100%',
                   transformOrigin: 'center center',
                   transform: `rotate(${currentRotation}deg)`,
+                  transition: 'transform 80ms linear',
+                  willChange: 'transform',
                   filter: 'none'
                 }}
               />
@@ -1497,6 +1454,8 @@ export default function SVGBoilingAnimation() {
                   height: '100%',
                   transformOrigin: 'center center',
                   transform: `rotate(${currentRotation2}deg)`,
+                  transition: 'transform 80ms linear',
+                  willChange: 'transform',
                   filter: 'none'
                 }}
               />
@@ -1590,25 +1549,6 @@ export default function SVGBoilingAnimation() {
           <NextImage src="/svg/UploadSimple.svg" alt="업로드" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
         </button>
         
-        <button
-          type="button"
-          className="toolbar-button"
-          style={{
-            width: vwp(32),
-            height: vwp(32),
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-          onClick={() => {
-            exportAnimatedSVG()
-          }}
-          title="애니메이션 SVG 저장"
-          aria-label="애니메이션 SVG로 저장"
-        >
-          <NextImage src="/svg/Gear.svg" alt="설정" width={32} height={32} style={{ width: vwp(32), height: vwp(32) }} />
-        </button>
       </div>
 
       {/* 숨겨진 파일 입력 */}
