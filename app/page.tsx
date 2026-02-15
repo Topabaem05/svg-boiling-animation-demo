@@ -94,12 +94,18 @@ export default function SVGBoilingAnimation() {
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
   const [tremorValue, setTremorValue] = useState(TREMOR_MIN)
   const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
-  const [isDragging, setIsDragging] = useState(false)
-  const [isDragging2, setIsDragging2] = useState(false)
   const [currentRotation, setCurrentRotation] = useState(0)
   const [currentRotation2, setCurrentRotation2] = useState(0)
-  const [startAngle, setStartAngle] = useState(0)
-  const [startAngle2, setStartAngle2] = useState(0)
+
+  const isDraggingRef = useRef(false)
+  const isDragging2Ref = useRef(false)
+  const startAngleRef = useRef(0)
+  const startAngle2Ref = useRef(0)
+
+  const tremorValueRef = useRef(TREMOR_MIN)
+  const intensityValueRef = useRef(INTENSITY_MIN)
+  const currentRotationRef = useRef(0)
+  const currentRotation2Ref = useRef(0)
 
   const animatedSvgRef = useRef<SVGSVGElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -381,6 +387,10 @@ export default function SVGBoilingAnimation() {
   }, [intensityValue, tremorValue])
 
   const resetValues = () => {
+    tremorValueRef.current = TREMOR_MIN
+    intensityValueRef.current = INTENSITY_MIN
+    currentRotationRef.current = 0
+    currentRotation2Ref.current = 0
     setTremorValue(0.001)
     setIntensityValue(1.0)
     setCurrentRotation(0)
@@ -706,8 +716,14 @@ export default function SVGBoilingAnimation() {
   // 컴포넌트 마운트 시 초기 설정
   useEffect(() => {
     // 초기 각도를 값에 맞춰 0~350도로 설정
-    setCurrentRotation(valueToAngle(TREMOR_MIN, TREMOR_MIN, TREMOR_MAX))
-    setCurrentRotation2(valueToAngle(INTENSITY_MIN, INTENSITY_MIN, INTENSITY_MAX))
+    const initialRotation = valueToAngle(TREMOR_MIN, TREMOR_MIN, TREMOR_MAX)
+    const initialRotation2 = valueToAngle(INTENSITY_MIN, INTENSITY_MIN, INTENSITY_MAX)
+    tremorValueRef.current = TREMOR_MIN
+    intensityValueRef.current = INTENSITY_MIN
+    currentRotationRef.current = initialRotation
+    currentRotation2Ref.current = initialRotation2
+    setCurrentRotation(initialRotation)
+    setCurrentRotation2(initialRotation2)
 
     // 초기 필터 적용
     const timer = setTimeout(() => {
@@ -739,77 +755,51 @@ export default function SVGBoilingAnimation() {
   const updateDialFromValues = useCallback((dialNumber: 1 | 2, nextValue: number) => {
     if (dialNumber === 1) {
       const clamped = clamp(nextValue, TREMOR_MIN, TREMOR_MAX)
+      tremorValueRef.current = clamped
+      currentRotationRef.current = valueToAngle(clamped, TREMOR_MIN, TREMOR_MAX)
       setTremorValue(clamped)
-      setCurrentRotation(valueToAngle(clamped, TREMOR_MIN, TREMOR_MAX))
-      syncDialFilterValues(clamped, intensityValue)
+      setCurrentRotation(currentRotationRef.current)
+      syncDialFilterValues(clamped, intensityValueRef.current)
       return
     }
 
     const clamped = clamp(nextValue, INTENSITY_MIN, INTENSITY_MAX)
+    intensityValueRef.current = clamped
+    currentRotation2Ref.current = valueToAngle(clamped, INTENSITY_MIN, INTENSITY_MAX)
     setIntensityValue(clamped)
-    setCurrentRotation2(valueToAngle(clamped, INTENSITY_MIN, INTENSITY_MAX))
-    syncDialFilterValues(tremorValue, clamped)
-  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, intensityValue, syncDialFilterValues, tremorValue, valueToAngle])
+    setCurrentRotation2(currentRotation2Ref.current)
+    syncDialFilterValues(tremorValueRef.current, clamped)
+  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
 
-  const updateTremorValue = useCallback((angleDiff: number, dialNumber = 1) => {
-    let newTremorValue = tremorValue
-    let newIntensityValue = intensityValue
-    
+  const updateTremorValue = useCallback((angleDiff: number, dialNumber: 1 | 2 = 1) => {
+    let nextTremorValue = tremorValueRef.current
+    let nextIntensityValue = intensityValueRef.current
+
     if (dialNumber === 1) {
-      // 떨림 다이얼 (0.001 - 0.050)
-      const minTremorValue = TREMOR_MIN
-      const maxTremorValue = TREMOR_MAX
-      const valueRange = maxTremorValue - minTremorValue
+      const valueRange = TREMOR_MAX - TREMOR_MIN
       const valueChange = (angleDiff / 360) * valueRange
-      const newValue = tremorValue + valueChange
-      
-      if (newValue <= minTremorValue) {
-        newTremorValue = minTremorValue
-        setTremorValue(minTremorValue)
-        // 각도도 0도로 설정
-        setCurrentRotation(0)
-        if (angleDiff < 0) return false
-      } else if (newValue >= maxTremorValue) {
-        newTremorValue = maxTremorValue
-        setTremorValue(maxTremorValue)
-        // 각도도 최댓값(350도)으로 설정
-        setCurrentRotation(ANGLE_MAX)
-        if (angleDiff > 0) return false
-      } else {
-        newTremorValue = Math.max(0.0001, newValue) // 항상 양수 유지
-        setTremorValue(newTremorValue)
-        setCurrentRotation(valueToAngle(newTremorValue, minTremorValue, maxTremorValue))
-      }
-    } else {
-      // 강도 다이얼 (1.0 - 20.0)
-      const minIntensityValue = INTENSITY_MIN
-      const maxIntensityValue = INTENSITY_MAX
-      const valueRange = maxIntensityValue - minIntensityValue
-      const valueChange = (angleDiff / 360) * valueRange
-      const newValue = intensityValue + valueChange
-      
-      if (newValue <= minIntensityValue) {
-        newIntensityValue = minIntensityValue
-        setIntensityValue(minIntensityValue)
-        setCurrentRotation2(0)
-        if (angleDiff < 0) return false
-      } else if (newValue >= maxIntensityValue) {
-        newIntensityValue = maxIntensityValue
-        setIntensityValue(maxIntensityValue)
-        setCurrentRotation2(ANGLE_MAX)
-        if (angleDiff > 0) return false
-      } else {
-        newIntensityValue = Math.max(0.1, newValue) // 최소값으로 클램핑
-        setIntensityValue(newIntensityValue)
-        setCurrentRotation2(valueToAngle(newIntensityValue, minIntensityValue, maxIntensityValue))
-      }
-    }
-    
-    // 즉시 필터 업데이트 (드래그 중 실시간 반영)
-    syncDialFilterValues(newTremorValue, newIntensityValue)
+      const unclamped = tremorValueRef.current + valueChange
+      nextTremorValue = clamp(Math.max(0.0001, unclamped), TREMOR_MIN, TREMOR_MAX)
 
-    return true
-  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, intensityValue, syncDialFilterValues, tremorValue, valueToAngle])
+      tremorValueRef.current = nextTremorValue
+      currentRotationRef.current = valueToAngle(nextTremorValue, TREMOR_MIN, TREMOR_MAX)
+      setTremorValue(nextTremorValue)
+      setCurrentRotation(currentRotationRef.current)
+    } else {
+      const valueRange = INTENSITY_MAX - INTENSITY_MIN
+      const valueChange = (angleDiff / 360) * valueRange
+      const unclamped = intensityValueRef.current + valueChange
+      nextIntensityValue = clamp(Math.max(INTENSITY_MIN, unclamped), INTENSITY_MIN, INTENSITY_MAX)
+
+      intensityValueRef.current = nextIntensityValue
+      currentRotation2Ref.current = valueToAngle(nextIntensityValue, INTENSITY_MIN, INTENSITY_MAX)
+      setIntensityValue(nextIntensityValue)
+      setCurrentRotation2(currentRotation2Ref.current)
+    }
+
+    // 즉시 필터 업데이트 (드래그 중 실시간 반영)
+    syncDialFilterValues(tremorValueRef.current, intensityValueRef.current)
+  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
 
   const DIAL_KEY_STEP = 10
 
@@ -851,44 +841,40 @@ export default function SVGBoilingAnimation() {
     }
   }, [startAnimation, stopAnimation, updateDialFromValues, updateTremorValue])
 
-  const handleMouseDown = (e: React.MouseEvent, dialNumber: number) => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
     // 애니메이션만 중지, 필터는 유지
     stopAnimation()
-    
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+
     if (dialNumber === 1) {
-      setIsDragging(true)
-      const rect = (e.target as HTMLElement).getBoundingClientRect()
-      const centerX = rect.left + rect.width / 2
-      const centerY = rect.top + rect.height / 2
-      setStartAngle(getAngle(centerX, centerY, e.clientX, e.clientY))
+      isDraggingRef.current = true
+      startAngleRef.current = getAngle(centerX, centerY, e.clientX, e.clientY)
     } else {
-      setIsDragging2(true)
-      const rect = (e.target as HTMLElement).getBoundingClientRect()
-      const centerX = rect.left + rect.width / 2
-      const centerY = rect.top + rect.height / 2
-      setStartAngle2(getAngle(centerX, centerY, e.clientX, e.clientY))
+      isDragging2Ref.current = true
+      startAngle2Ref.current = getAngle(centerX, centerY, e.clientX, e.clientY)
     }
     e.preventDefault()
   }
 
-  const handleTouchStart = useCallback((e: React.TouchEvent, dialNumber: number) => {
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
     stopAnimation()
 
     const touch = e.touches[0]
     if (!touch) return
 
+    const rect = e.currentTarget.getBoundingClientRect()
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+
     if (dialNumber === 1) {
-      setIsDragging(true)
-      const rect = (e.target as HTMLElement).getBoundingClientRect()
-      const centerX = rect.left + rect.width / 2
-      const centerY = rect.top + rect.height / 2
-      setStartAngle(getAngle(centerX, centerY, touch.clientX, touch.clientY))
+      isDraggingRef.current = true
+      startAngleRef.current = getAngle(centerX, centerY, touch.clientX, touch.clientY)
     } else {
-      setIsDragging2(true)
-      const rect = (e.target as HTMLElement).getBoundingClientRect()
-      const centerX = rect.left + rect.width / 2
-      const centerY = rect.top + rect.height / 2
-      setStartAngle2(getAngle(centerX, centerY, touch.clientX, touch.clientY))
+      isDragging2Ref.current = true
+      startAngle2Ref.current = getAngle(centerX, centerY, touch.clientX, touch.clientY)
     }
     e.preventDefault()
   }, [getAngle, stopAnimation])
@@ -897,7 +883,7 @@ export default function SVGBoilingAnimation() {
     const touch = e.touches[0]
     if (!touch) return
 
-    if (isDragging) {
+    if (isDraggingRef.current) {
       const volumeDial = document.getElementById('tremor-circle')
       if (volumeDial) {
         const rect = volumeDial.getBoundingClientRect()
@@ -905,18 +891,17 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-        let angleDiff = currentAngle - startAngle
+        let angleDiff = currentAngle - startAngleRef.current
 
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
         updateTremorValue(angleDiff, 1)
-
-        setStartAngle(currentAngle)
+        startAngleRef.current = currentAngle
       }
     }
 
-    if (isDragging2) {
+    if (isDragging2Ref.current) {
       const volumeDial2 = document.getElementById('tremor-circle-2')
       if (volumeDial2) {
         const rect = volumeDial2.getBoundingClientRect()
@@ -924,23 +909,22 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-        let angleDiff = currentAngle - startAngle2
+        let angleDiff = currentAngle - startAngle2Ref.current
 
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
         updateTremorValue(angleDiff, 2)
-
-        setStartAngle2(currentAngle)
+        startAngle2Ref.current = currentAngle
       }
     }
 
     e.preventDefault()
-  }, [getAngle, isDragging, isDragging2, startAngle, startAngle2, updateTremorValue])
+  }, [getAngle, updateTremorValue])
 
   const handleDocumentTouchEnd = useCallback(() => {
-    setIsDragging(false)
-    setIsDragging2(false)
+    isDraggingRef.current = false
+    isDragging2Ref.current = false
     setTimeout(() => {
       applyFilters()
     }, 10)
@@ -948,7 +932,7 @@ export default function SVGBoilingAnimation() {
   }, [applyFilters, startAnimation])
 
   const handleDocumentMouseMove = useCallback((event: MouseEvent) => {
-    if (isDragging) {
+    if (isDraggingRef.current) {
       const volumeDial = document.getElementById('tremor-circle')
       if (volumeDial) {
         const rect = volumeDial.getBoundingClientRect()
@@ -956,18 +940,17 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
-        let angleDiff = currentAngle - startAngle
+        let angleDiff = currentAngle - startAngleRef.current
 
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
         updateTremorValue(angleDiff, 1)
-
-        setStartAngle(currentAngle)
+        startAngleRef.current = currentAngle
       }
     }
 
-    if (isDragging2) {
+    if (isDragging2Ref.current) {
       const volumeDial2 = document.getElementById('tremor-circle-2')
       if (volumeDial2) {
         const rect = volumeDial2.getBoundingClientRect()
@@ -975,21 +958,20 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
-        let angleDiff = currentAngle - startAngle2
+        let angleDiff = currentAngle - startAngle2Ref.current
 
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
         updateTremorValue(angleDiff, 2)
-
-        setStartAngle2(currentAngle)
+        startAngle2Ref.current = currentAngle
       }
     }
-  }, [getAngle, isDragging, isDragging2, startAngle, startAngle2, updateTremorValue])
+  }, [getAngle, updateTremorValue])
 
   const handleDocumentMouseUp = useCallback(() => {
-    setIsDragging(false)
-    setIsDragging2(false)
+    isDraggingRef.current = false
+    isDragging2Ref.current = false
 
     // 드래그 종료 후 전체 필터를 다시 적용하여 지속성 보장
     setTimeout(() => {
