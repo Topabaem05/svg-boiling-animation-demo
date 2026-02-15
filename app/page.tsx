@@ -8,10 +8,44 @@ import { useState, useRef, useEffect, useCallback } from "react"
 const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
 const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
 
+const UI_REFERENCE = {
+  iphone16_9: {
+    label: "iPhone 16 - 9 (393x852)",
+    src: "/ui-reference/iphone-16-9.png",
+    width: 393,
+    height: 852,
+  },
+  iphone16_10: {
+    label: "iPhone 16 - 10 (744x1133)",
+    src: "/ui-reference/iphone-16-10.png",
+    width: 744,
+    height: 1133,
+  },
+} as const
+
+type OverlayScope = "none" | "artboard" | "viewport"
+type OverlayImage = keyof typeof UI_REFERENCE
+
+type OverlaySettings = {
+  scope: OverlayScope
+  image: OverlayImage
+  opacity: number
+}
+
+const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
+  scope: "none",
+  image: "iphone16_9",
+  opacity: 0.35,
+}
+
 export default function SVGBoilingAnimation() {
   const DESIGN_WIDTH = 393
   const DESIGN_HEIGHT = 852
   const DESIGN_PADDING = 16
+  const VIEWPORT_SCALE_MAX = Math.min(
+    UI_REFERENCE.iphone16_10.width / (DESIGN_WIDTH + DESIGN_PADDING * 2),
+    UI_REFERENCE.iphone16_10.height / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
+  )
   const CANVAS_AREA_WIDTH = 315
   const CANVAS_AREA_HEIGHT = 445
   const CANVAS_VIEWBOX_WIDTH = 315
@@ -32,6 +66,10 @@ export default function SVGBoilingAnimation() {
   const scaledPadding = Math.round(DESIGN_PADDING * viewportScale)
   const scaledDesignWidth = Math.round(DESIGN_WIDTH * viewportScale)
   const scaledDesignHeight = Math.round(DESIGN_HEIGHT * viewportScale)
+  const [showOverlayPanel, setShowOverlayPanel] = useState(false)
+  const [overlay, setOverlay] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS)
+  const overlaySrc = UI_REFERENCE[overlay.image].src
+  const overlayOpacity = clamp(overlay.opacity, 0, 1)
   const animationScale = 0.2 // 고정값으로 설정
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
@@ -59,10 +97,52 @@ export default function SVGBoilingAnimation() {
   const currentIndexRef = useRef(0)
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const shouldShow = params.has("overlay") || params.has("debugOverlay")
+    if (!shouldShow) return
+
+    setShowOverlayPanel(true)
+
+    try {
+      const raw = localStorage.getItem("boling:ui-overlay")
+      if (!raw) return
+      const parsed = JSON.parse(raw) as Partial<OverlaySettings>
+
+      const nextScope =
+        parsed.scope === "none" || parsed.scope === "artboard" || parsed.scope === "viewport"
+          ? parsed.scope
+          : DEFAULT_OVERLAY_SETTINGS.scope
+
+      const nextImage =
+        parsed.image === "iphone16_9" || parsed.image === "iphone16_10"
+          ? parsed.image
+          : DEFAULT_OVERLAY_SETTINGS.image
+
+      const nextOpacity =
+        typeof parsed.opacity === "number"
+          ? clamp(parsed.opacity, 0, 1)
+          : DEFAULT_OVERLAY_SETTINGS.opacity
+
+      setOverlay({ scope: nextScope, image: nextImage, opacity: nextOpacity })
+    } catch (error) {
+      console.error("Failed to load overlay settings:", error)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!showOverlayPanel) return
+    try {
+      localStorage.setItem("boling:ui-overlay", JSON.stringify(overlay))
+    } catch (error) {
+      console.error("Failed to persist overlay settings:", error)
+    }
+  }, [overlay, showOverlayPanel])
+
+  useEffect(() => {
     const handleResize = () => {
       const widthScale = window.innerWidth / (DESIGN_WIDTH + DESIGN_PADDING * 2)
       const heightScale = window.innerHeight / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
-      setViewportScale(Math.min(widthScale, heightScale, 1))
+      setViewportScale(Math.min(widthScale, heightScale, VIEWPORT_SCALE_MAX))
     }
 
     handleResize()
@@ -71,7 +151,7 @@ export default function SVGBoilingAnimation() {
     return () => {
       window.removeEventListener("resize", handleResize)
     }
-  }, [])
+  }, [DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_PADDING, VIEWPORT_SCALE_MAX])
 
   const applyFilters = useCallback(() => {
     const svg = animatedSvgRef.current
@@ -904,11 +984,127 @@ export default function SVGBoilingAnimation() {
         overflow: 'hidden',
         fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
       }}>
+        {showOverlayPanel && overlay.scope === 'viewport' ? (
+          <NextImage
+            src={overlaySrc}
+            alt=""
+            aria-hidden="true"
+            width={UI_REFERENCE[overlay.image].width}
+            height={UI_REFERENCE[overlay.image].height}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              width: '100vw',
+              height: '100dvh',
+              objectFit: 'contain',
+              opacity: overlayOpacity,
+              pointerEvents: 'none',
+              zIndex: 9998,
+            }}
+          />
+        ) : null}
+
+        {showOverlayPanel ? (
+          <div
+            style={{
+              position: 'fixed',
+              left: 12,
+              top: 12,
+              zIndex: 9999,
+              width: 260,
+              padding: 12,
+              borderRadius: 12,
+              background: 'rgba(255,255,255,0.9)',
+              border: '1px solid rgba(0,0,0,0.15)',
+              boxShadow: '0 10px 24px rgba(0,0,0,0.12)',
+              fontFamily:
+                'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+              fontSize: 12,
+              lineHeight: 1.2,
+              color: '#111',
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Overlay</div>
+
+            <label style={{ display: 'block', marginBottom: 10 }}>
+              <div style={{ marginBottom: 4, opacity: 0.8 }}>Scope</div>
+              <select
+                value={overlay.scope}
+                onChange={(e) => {
+                  const nextScope = e.target.value
+                  if (nextScope === 'none' || nextScope === 'artboard' || nextScope === 'viewport') {
+                    setOverlay((prev) => ({ ...prev, scope: nextScope }))
+                  }
+                }}
+                style={{ width: '100%', padding: '6px 8px' }}
+              >
+                <option value="none">Off</option>
+                <option value="artboard">Artboard</option>
+                <option value="viewport">Viewport</option>
+              </select>
+            </label>
+
+            <label style={{ display: 'block', marginBottom: 10 }}>
+              <div style={{ marginBottom: 4, opacity: 0.8 }}>Image</div>
+              <select
+                value={overlay.image}
+                onChange={(e) => {
+                  const nextImage = e.target.value
+                  if (nextImage === 'iphone16_9' || nextImage === 'iphone16_10') {
+                    setOverlay((prev) => ({ ...prev, image: nextImage }))
+                  }
+                }}
+                style={{ width: '100%', padding: '6px 8px' }}
+              >
+                <option value="iphone16_9">{UI_REFERENCE.iphone16_9.label}</option>
+                <option value="iphone16_10">{UI_REFERENCE.iphone16_10.label}</option>
+              </select>
+            </label>
+
+            <label style={{ display: 'block' }}>
+              <div style={{ marginBottom: 6, opacity: 0.8 }}>
+                Opacity <span style={{ opacity: 0.7 }}>({Math.round(overlayOpacity * 100)}%)</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={overlayOpacity}
+                onChange={(e) => {
+                  const next = clamp(Number(e.target.value), 0, 1)
+                  setOverlay((prev) => ({ ...prev, opacity: next }))
+                }}
+                style={{ width: '100%' }}
+              />
+            </label>
+          </div>
+        ) : null}
+
         <div style={{
           width: `${scaledDesignWidth}px`,
           height: `${scaledDesignHeight}px`,
           position: 'relative',
         }}>
+          {showOverlayPanel && overlay.scope === 'artboard' ? (
+            <NextImage
+              src={overlaySrc}
+              alt=""
+              aria-hidden="true"
+              width={UI_REFERENCE[overlay.image].width}
+              height={UI_REFERENCE[overlay.image].height}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: overlay.image === 'iphone16_9' ? 'fill' : 'contain',
+                opacity: overlayOpacity,
+                pointerEvents: 'none',
+                zIndex: 9998,
+              }}
+            />
+          ) : null}
       {/* Canvas Area */}
       <div style={{
         position: 'absolute',
