@@ -22,6 +22,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local UI reference images (do not commit)
+public/ui-reference/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
