@@ -8,6 +8,8 @@ import { useState, useRef, useEffect, useCallback } from "react"
 const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
 const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
 
+const TURBULENCE_SEED = 1
+
 type OverlayScope = "none" | "artboard" | "viewport"
 type OverlaySlot = "A" | "B"
 
@@ -35,11 +37,6 @@ const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   opacity: 0.35,
 }
 
-const DEFAULT_OVERLAY_STATE: OverlayPersistedState = {
-  settings: DEFAULT_OVERLAY_SETTINGS,
-  images: {},
-}
-
 export default function SVGBoilingAnimation() {
   const DESIGN_WIDTH = 393
   const DESIGN_HEIGHT = 852
@@ -55,13 +52,14 @@ export default function SVGBoilingAnimation() {
   const CANVAS_UPLOAD_MAX_WIDTH = 310
   const vwp = (px: number) => `${Math.round(px * viewportScale)}px`
   const vhp = (px: number) => `${Math.round(px * viewportScale)}px`
-  const ANGLE_MAX = 350
+  const ANGLE_MAX = 360
   const TREMOR_MIN = 0.001
   const TREMOR_MAX = 0.050
   const INTENSITY_MIN = 1.0
   const INTENSITY_MAX = 20.0
   const valueToAngle = useCallback((val: number, min: number, max: number) => {
     const frac = clamp((val - min) / (max - min), 0, 1)
+    if (frac >= 1) return ANGLE_MAX - 0.001
     return frac * ANGLE_MAX
   }, [ANGLE_MAX])
   const [viewportScale, setViewportScale] = useState(1)
@@ -80,7 +78,7 @@ export default function SVGBoilingAnimation() {
   }
   const overlayFileInputRef = useRef<HTMLInputElement>(null)
   const overlayTargetSlotRef = useRef<OverlaySlot>(DEFAULT_OVERLAY_SETTINGS.slot)
-  const animationScale = 0.2 // 고정값으로 설정
+  const [animationScale, setAnimationScale] = useState(0.2)
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -281,6 +279,7 @@ export default function SVGBoilingAnimation() {
     turbulence.setAttribute("type", "turbulence")
     turbulence.setAttribute("baseFrequency", Math.max(0.0001, tremorValue).toString()) // 항상 양수 유지
     turbulence.setAttribute("numOctaves", "2")
+    turbulence.setAttribute("seed", TURBULENCE_SEED.toString())
     turbulence.setAttribute("result", "noise")
 
     const displacement = document.createElementNS("http://www.w3.org/2000/svg", "feDisplacementMap")
@@ -391,10 +390,11 @@ export default function SVGBoilingAnimation() {
     intensityValueRef.current = INTENSITY_MIN
     currentRotationRef.current = 0
     currentRotation2Ref.current = 0
-    setTremorValue(0.001)
-    setIntensityValue(1.0)
+    setTremorValue(TREMOR_MIN)
+    setIntensityValue(INTENSITY_MIN)
     setCurrentRotation(0)
     setCurrentRotation2(0)
+    setAnimationScale(0.2)
     setAnimationSpeed(100)
   }
 
@@ -552,6 +552,7 @@ export default function SVGBoilingAnimation() {
       turbulence.setAttribute("type", "turbulence")
       turbulence.setAttribute("baseFrequency", Math.max(0.0001, tremorValue).toString()) // 항상 양수 유지
       turbulence.setAttribute("numOctaves", "2")
+      turbulence.setAttribute("seed", TURBULENCE_SEED.toString())
       turbulence.setAttribute("result", "noise")
 
       const displacement = document.createElementNS("http://www.w3.org/2000/svg", "feDisplacementMap")
@@ -1474,6 +1475,45 @@ export default function SVGBoilingAnimation() {
         right: 0
       }}>
         세기 강도 : <span id="intensity-value" role="status" aria-live="polite" style={{ display: 'inline-block', width: vwp(40), textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
+      </div>
+
+      <div style={{
+        position: 'absolute',
+        left: vwp(30),
+        top: vhp(770),
+        width: vwp(333),
+        display: 'flex',
+        alignItems: 'center',
+        gap: vwp(10),
+        color: 'rgb(0, 0, 0)',
+      }}>
+        <div style={{
+          fontSize: vwp(18),
+          whiteSpace: 'nowrap',
+        }}>
+          보일링 폭 :
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={animationScale}
+          onChange={(e) => setAnimationScale(Number(e.target.value))}
+          aria-label="보일링 애니메이션 폭"
+          style={{
+            flex: 1,
+            accentColor: '#FF6A6A',
+          }}
+        />
+        <div style={{
+          fontSize: vwp(18),
+          width: vwp(45),
+          textAlign: 'right',
+          fontWeight: 'bold',
+        }}>
+          {animationScale.toFixed(2)}
+        </div>
       </div>
 
       {/* 하단 툴바 */}
