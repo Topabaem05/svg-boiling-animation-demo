@@ -955,9 +955,7 @@ export default function SVGBoilingAnimation() {
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
-        if (updateTremorValue(angleDiff, 1)) {
-          setCurrentRotation(prev => prev + angleDiff)
-        }
+        updateTremorValue(angleDiff, 1)
 
         setStartAngle(currentAngle)
       }
@@ -976,9 +974,7 @@ export default function SVGBoilingAnimation() {
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
-        if (updateTremorValue(angleDiff, 2)) {
-          setCurrentRotation2(prev => prev + angleDiff)
-        }
+        updateTremorValue(angleDiff, 2)
 
         setStartAngle2(currentAngle)
       }
@@ -1010,9 +1006,7 @@ export default function SVGBoilingAnimation() {
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
-        if (updateTremorValue(angleDiff, 1)) {
-          setCurrentRotation(prev => prev + angleDiff)
-        }
+        updateTremorValue(angleDiff, 1)
 
         setStartAngle(currentAngle)
       }
@@ -1031,9 +1025,7 @@ export default function SVGBoilingAnimation() {
         if (angleDiff > 180) angleDiff -= 360
         if (angleDiff < -180) angleDiff += 360
 
-        if (updateTremorValue(angleDiff, 2)) {
-          setCurrentRotation2(prev => prev + angleDiff)
-        }
+        updateTremorValue(angleDiff, 2)
 
         setStartAngle2(currentAngle)
       }
