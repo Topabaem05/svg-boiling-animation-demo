@@ -8,34 +8,36 @@ import { useState, useRef, useEffect, useCallback } from "react"
 const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
 const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
 
-const UI_REFERENCE = {
-  iphone16_9: {
-    label: "iPhone 16 - 9 (393x852)",
-    src: "/ui-reference/iphone-16-9.png",
-    width: 393,
-    height: 852,
-  },
-  iphone16_10: {
-    label: "iPhone 16 - 10 (744x1133)",
-    src: "/ui-reference/iphone-16-10.png",
-    width: 744,
-    height: 1133,
-  },
-} as const
-
 type OverlayScope = "none" | "artboard" | "viewport"
-type OverlayImage = keyof typeof UI_REFERENCE
+type OverlaySlot = "A" | "B"
+
+type OverlayImage = {
+  src: string
+  name: string
+  width: number
+  height: number
+}
 
 type OverlaySettings = {
   scope: OverlayScope
-  image: OverlayImage
+  slot: OverlaySlot
   opacity: number
+}
+
+type OverlayPersistedState = {
+  settings: OverlaySettings
+  images: Partial<Record<OverlaySlot, OverlayImage>>
 }
 
 const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   scope: "none",
-  image: "iphone16_9",
+  slot: "A",
   opacity: 0.35,
+}
+
+const DEFAULT_OVERLAY_STATE: OverlayPersistedState = {
+  settings: DEFAULT_OVERLAY_SETTINGS,
+  images: {},
 }
 
 export default function SVGBoilingAnimation() {
@@ -43,8 +45,8 @@ export default function SVGBoilingAnimation() {
   const DESIGN_HEIGHT = 852
   const DESIGN_PADDING = 16
   const VIEWPORT_SCALE_MAX = Math.min(
-    UI_REFERENCE.iphone16_10.width / (DESIGN_WIDTH + DESIGN_PADDING * 2),
-    UI_REFERENCE.iphone16_10.height / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
+    744 / (DESIGN_WIDTH + DESIGN_PADDING * 2),
+    1133 / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
   )
   const CANVAS_AREA_WIDTH = 315
   const CANVAS_AREA_HEIGHT = 445
@@ -67,9 +69,17 @@ export default function SVGBoilingAnimation() {
   const scaledDesignWidth = Math.round(DESIGN_WIDTH * viewportScale)
   const scaledDesignHeight = Math.round(DESIGN_HEIGHT * viewportScale)
   const [showOverlayPanel, setShowOverlayPanel] = useState(false)
-  const [overlay, setOverlay] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS)
-  const overlaySrc = UI_REFERENCE[overlay.image].src
-  const overlayOpacity = clamp(overlay.opacity, 0, 1)
+  const [overlaySettings, setOverlaySettings] = useState<OverlaySettings>(DEFAULT_OVERLAY_SETTINGS)
+  const [overlayImages, setOverlayImages] = useState<Partial<Record<OverlaySlot, OverlayImage>>>({})
+  const overlayOpacity = clamp(overlaySettings.opacity, 0, 1)
+  const activeOverlayImage = overlayImages[overlaySettings.slot]
+  const overlaySrc = activeOverlayImage?.src
+  const overlaySize = {
+    width: activeOverlayImage?.width ?? DESIGN_WIDTH,
+    height: activeOverlayImage?.height ?? DESIGN_HEIGHT,
+  }
+  const overlayFileInputRef = useRef<HTMLInputElement>(null)
+  const overlayTargetSlotRef = useRef<OverlaySlot>(DEFAULT_OVERLAY_SETTINGS.slot)
   const animationScale = 0.2 // 고정값으로 설정
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
@@ -106,24 +116,58 @@ export default function SVGBoilingAnimation() {
     try {
       const raw = localStorage.getItem("boling:ui-overlay")
       if (!raw) return
-      const parsed = JSON.parse(raw) as Partial<OverlaySettings>
+      const parsed = JSON.parse(raw) as unknown
+
+      if (!parsed || typeof parsed !== "object") return
+      const maybeState = parsed as Partial<OverlayPersistedState>
+
+      const parsedSettings = maybeState.settings
+      const parsedImages = maybeState.images
 
       const nextScope =
-        parsed.scope === "none" || parsed.scope === "artboard" || parsed.scope === "viewport"
-          ? parsed.scope
+        parsedSettings?.scope === "none" ||
+        parsedSettings?.scope === "artboard" ||
+        parsedSettings?.scope === "viewport"
+          ? parsedSettings.scope
           : DEFAULT_OVERLAY_SETTINGS.scope
 
-      const nextImage =
-        parsed.image === "iphone16_9" || parsed.image === "iphone16_10"
-          ? parsed.image
-          : DEFAULT_OVERLAY_SETTINGS.image
+      const nextSlot =
+        parsedSettings?.slot === "A" || parsedSettings?.slot === "B"
+          ? parsedSettings.slot
+          : DEFAULT_OVERLAY_SETTINGS.slot
 
       const nextOpacity =
-        typeof parsed.opacity === "number"
-          ? clamp(parsed.opacity, 0, 1)
+        typeof parsedSettings?.opacity === "number"
+          ? clamp(parsedSettings.opacity, 0, 1)
           : DEFAULT_OVERLAY_SETTINGS.opacity
 
-      setOverlay({ scope: nextScope, image: nextImage, opacity: nextOpacity })
+      setOverlaySettings({ scope: nextScope, slot: nextSlot, opacity: nextOpacity })
+
+      if (parsedImages && typeof parsedImages === "object") {
+        const nextImages: Partial<Record<OverlaySlot, OverlayImage>> = {}
+
+        for (const slot of ["A", "B"] as const) {
+          const maybeImage = (parsedImages as Partial<Record<OverlaySlot, unknown>>)[slot]
+          if (!maybeImage || typeof maybeImage !== "object") continue
+
+          const image = maybeImage as Partial<OverlayImage>
+          if (
+            typeof image.src === "string" &&
+            typeof image.name === "string" &&
+            typeof image.width === "number" &&
+            typeof image.height === "number"
+          ) {
+            nextImages[slot] = {
+              src: image.src,
+              name: image.name,
+              width: image.width,
+              height: image.height,
+            }
+          }
+        }
+
+        setOverlayImages(nextImages)
+      }
     } catch (error) {
       console.error("Failed to load overlay settings:", error)
     }
@@ -132,11 +176,66 @@ export default function SVGBoilingAnimation() {
   useEffect(() => {
     if (!showOverlayPanel) return
     try {
-      localStorage.setItem("boling:ui-overlay", JSON.stringify(overlay))
+      const nextState: OverlayPersistedState = {
+        settings: overlaySettings,
+        images: overlayImages,
+      }
+      localStorage.setItem("boling:ui-overlay", JSON.stringify(nextState))
     } catch (error) {
       console.error("Failed to persist overlay settings:", error)
     }
-  }, [overlay, showOverlayPanel])
+  }, [overlayImages, overlaySettings, showOverlayPanel])
+
+  const openOverlayFilePicker = useCallback((slot: OverlaySlot) => {
+    overlayTargetSlotRef.current = slot
+    overlayFileInputRef.current?.click()
+  }, [])
+
+  const handleOverlayFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+
+    const slot = overlayTargetSlotRef.current
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== "string") return
+
+      const img = new Image()
+      img.onload = () => {
+        const next: OverlayImage = {
+          src: result,
+          name: file.name,
+          width: img.width,
+          height: img.height,
+        }
+
+        setOverlayImages((prev) => ({
+          ...prev,
+          [slot]: next,
+        }))
+
+        setOverlaySettings((prev) => ({
+          ...prev,
+          slot,
+        }))
+      }
+
+      img.onerror = () => {
+        console.error("Failed to read overlay image")
+      }
+
+      img.src = result
+    }
+
+    reader.onerror = () => {
+      console.error("Failed to read overlay file")
+    }
+
+    reader.readAsDataURL(file)
+  }, [])
 
   useEffect(() => {
     const handleResize = () => {
@@ -984,13 +1083,13 @@ export default function SVGBoilingAnimation() {
         overflow: 'hidden',
         fontFamily: 'Ownglyph_ParkDaHyun, sans-serif',
       }}>
-        {showOverlayPanel && overlay.scope === 'viewport' ? (
+        {showOverlayPanel && overlaySettings.scope === 'viewport' && overlaySrc ? (
           <NextImage
             src={overlaySrc}
             alt=""
             aria-hidden="true"
-            width={UI_REFERENCE[overlay.image].width}
-            height={UI_REFERENCE[overlay.image].height}
+            width={overlaySize.width}
+            height={overlaySize.height}
             style={{
               position: 'fixed',
               inset: 0,
@@ -1029,11 +1128,11 @@ export default function SVGBoilingAnimation() {
             <label style={{ display: 'block', marginBottom: 10 }}>
               <div style={{ marginBottom: 4, opacity: 0.8 }}>Scope</div>
               <select
-                value={overlay.scope}
+                value={overlaySettings.scope}
                 onChange={(e) => {
                   const nextScope = e.target.value
                   if (nextScope === 'none' || nextScope === 'artboard' || nextScope === 'viewport') {
-                    setOverlay((prev) => ({ ...prev, scope: nextScope }))
+                    setOverlaySettings((prev) => ({ ...prev, scope: nextScope }))
                   }
                 }}
                 style={{ width: '100%', padding: '6px 8px' }}
@@ -1045,20 +1144,102 @@ export default function SVGBoilingAnimation() {
             </label>
 
             <label style={{ display: 'block', marginBottom: 10 }}>
-              <div style={{ marginBottom: 4, opacity: 0.8 }}>Image</div>
+              <div style={{ marginBottom: 6, opacity: 0.8 }}>Reference images</div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => openOverlayFilePicker('A')}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(0,0,0,0.2)',
+                    background: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Load A
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openOverlayFilePicker('B')}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(0,0,0,0.2)',
+                    background: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Load B
+                </button>
+              </div>
+
               <select
-                value={overlay.image}
+                value={overlaySettings.slot}
                 onChange={(e) => {
-                  const nextImage = e.target.value
-                  if (nextImage === 'iphone16_9' || nextImage === 'iphone16_10') {
-                    setOverlay((prev) => ({ ...prev, image: nextImage }))
+                  const nextSlot = e.target.value
+                  if (nextSlot === 'A' || nextSlot === 'B') {
+                    setOverlaySettings((prev) => ({ ...prev, slot: nextSlot }))
                   }
                 }}
                 style={{ width: '100%', padding: '6px 8px' }}
               >
-                <option value="iphone16_9">{UI_REFERENCE.iphone16_9.label}</option>
-                <option value="iphone16_10">{UI_REFERENCE.iphone16_10.label}</option>
+                <option value="A">Use A {overlayImages.A ? `(${overlayImages.A.name})` : '(empty)'}</option>
+                <option value="B">Use B {overlayImages.B ? `(${overlayImages.B.name})` : '(empty)'}</option>
               </select>
+
+              <div style={{ marginTop: 6, opacity: 0.7 }}>
+                Active: {activeOverlayImage ? `${activeOverlayImage.name} (${activeOverlayImage.width}x${activeOverlayImage.height})` : 'none'}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const slot = overlaySettings.slot
+                    setOverlayImages((prev) => {
+                      const next = { ...prev }
+                      delete next[slot]
+                      return next
+                    })
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(0,0,0,0.2)',
+                    background: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Clear active
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOverlaySettings(DEFAULT_OVERLAY_SETTINGS)
+                    setOverlayImages({})
+                    try {
+                      localStorage.removeItem('boling:ui-overlay')
+                    } catch (error) {
+                      console.error('Failed to clear overlay cache:', error)
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(0,0,0,0.2)',
+                    background: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
             </label>
 
             <label style={{ display: 'block' }}>
@@ -1073,7 +1254,7 @@ export default function SVGBoilingAnimation() {
                 value={overlayOpacity}
                 onChange={(e) => {
                   const next = clamp(Number(e.target.value), 0, 1)
-                  setOverlay((prev) => ({ ...prev, opacity: next }))
+                  setOverlaySettings((prev) => ({ ...prev, opacity: next }))
                 }}
                 style={{ width: '100%' }}
               />
@@ -1081,24 +1262,34 @@ export default function SVGBoilingAnimation() {
           </div>
         ) : null}
 
+        {showOverlayPanel ? (
+          <input
+            ref={overlayFileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleOverlayFileChange}
+            style={{ display: 'none' }}
+          />
+        ) : null}
+
         <div style={{
           width: `${scaledDesignWidth}px`,
           height: `${scaledDesignHeight}px`,
           position: 'relative',
         }}>
-          {showOverlayPanel && overlay.scope === 'artboard' ? (
+          {showOverlayPanel && overlaySettings.scope === 'artboard' && overlaySrc ? (
             <NextImage
               src={overlaySrc}
               alt=""
               aria-hidden="true"
-              width={UI_REFERENCE[overlay.image].width}
-              height={UI_REFERENCE[overlay.image].height}
+              width={overlaySize.width}
+              height={overlaySize.height}
               style={{
                 position: 'absolute',
                 inset: 0,
                 width: '100%',
                 height: '100%',
-                objectFit: overlay.image === 'iphone16_9' ? 'fill' : 'contain',
+                objectFit: 'fill',
                 opacity: overlayOpacity,
                 pointerEvents: 'none',
                 zIndex: 9998,
