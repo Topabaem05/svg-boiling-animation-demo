@@ -797,6 +797,35 @@ export default function SVGBoilingAnimation() {
   }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
 
   const DIAL_KEY_STEP = 10
+  const MAX_DIAL_ANGLE_STEP = 50
+  const DIAL_DAMPING_START = 16
+  const DIAL_DAMPING_FACTOR = 0.25
+
+  const normalizeAngleDiff = useCallback((currentAngle: number, previousAngle: number) => {
+    let angleDiff = currentAngle - previousAngle
+    if (angleDiff > 180) angleDiff -= 360
+    if (angleDiff < -180) angleDiff += 360
+    return angleDiff
+  }, [])
+
+  const isDialJump = useCallback((angleDiff: number) => {
+    return Math.abs(angleDiff) > MAX_DIAL_ANGLE_STEP
+  }, [MAX_DIAL_ANGLE_STEP])
+
+  const getDampedAngleDiff = useCallback((angleDiff: number) => {
+    const absAngleDiff = Math.abs(angleDiff)
+    if (absAngleDiff <= DIAL_DAMPING_START) {
+      return angleDiff
+    }
+
+    const normalizedDiff = Math.min(
+      1,
+      (absAngleDiff - DIAL_DAMPING_START) / (MAX_DIAL_ANGLE_STEP - DIAL_DAMPING_START)
+    )
+    const dampingFactor = 1 - DIAL_DAMPING_FACTOR * normalizedDiff
+
+    return angleDiff * dampingFactor
+  }, [MAX_DIAL_ANGLE_STEP, DIAL_DAMPING_FACTOR, DIAL_DAMPING_START])
 
   const handleDialKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
     const isTremorDial = dialNumber === 1
@@ -886,12 +915,14 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-        let angleDiff = currentAngle - startAngleRef.current
+        const angleDiff = normalizeAngleDiff(currentAngle, startAngleRef.current)
 
-        if (angleDiff > 180) angleDiff -= 360
-        if (angleDiff < -180) angleDiff += 360
-
-        updateTremorValue(angleDiff, 1)
+        if (isDialJump(angleDiff)) {
+          startAngleRef.current = currentAngle
+        } else {
+          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
+          updateTremorValue(dampedAngleDiff, 1)
+        }
         startAngleRef.current = currentAngle
       }
     }
@@ -904,18 +935,20 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-        let angleDiff = currentAngle - startAngle2Ref.current
+        const angleDiff = normalizeAngleDiff(currentAngle, startAngle2Ref.current)
 
-        if (angleDiff > 180) angleDiff -= 360
-        if (angleDiff < -180) angleDiff += 360
-
-        updateTremorValue(angleDiff, 2)
+        if (isDialJump(angleDiff)) {
+          startAngle2Ref.current = currentAngle
+        } else {
+          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
+          updateTremorValue(dampedAngleDiff, 2)
+        }
         startAngle2Ref.current = currentAngle
       }
     }
 
     e.preventDefault()
-  }, [getAngle, updateTremorValue])
+  }, [getAngle, getDampedAngleDiff, isDialJump, normalizeAngleDiff, updateTremorValue])
 
   const handleDocumentTouchEnd = useCallback(() => {
     isDraggingRef.current = false
@@ -935,12 +968,14 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
-        let angleDiff = currentAngle - startAngleRef.current
+        const angleDiff = normalizeAngleDiff(currentAngle, startAngleRef.current)
 
-        if (angleDiff > 180) angleDiff -= 360
-        if (angleDiff < -180) angleDiff += 360
-
-        updateTremorValue(angleDiff, 1)
+        if (isDialJump(angleDiff)) {
+          startAngleRef.current = currentAngle
+        } else {
+          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
+          updateTremorValue(dampedAngleDiff, 1)
+        }
         startAngleRef.current = currentAngle
       }
     }
@@ -953,16 +988,18 @@ export default function SVGBoilingAnimation() {
         const centerY = rect.top + rect.height / 2
 
         const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
-        let angleDiff = currentAngle - startAngle2Ref.current
+        const angleDiff = normalizeAngleDiff(currentAngle, startAngle2Ref.current)
 
-        if (angleDiff > 180) angleDiff -= 360
-        if (angleDiff < -180) angleDiff += 360
-
-        updateTremorValue(angleDiff, 2)
+        if (isDialJump(angleDiff)) {
+          startAngle2Ref.current = currentAngle
+        } else {
+          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
+          updateTremorValue(dampedAngleDiff, 2)
+        }
         startAngle2Ref.current = currentAngle
       }
     }
-  }, [getAngle, updateTremorValue])
+  }, [getAngle, getDampedAngleDiff, isDialJump, normalizeAngleDiff, updateTremorValue])
 
   const handleDocumentMouseUp = useCallback(() => {
     isDraggingRef.current = false
