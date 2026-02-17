@@ -797,9 +797,10 @@ export default function SVGBoilingAnimation() {
   }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
 
   const DIAL_KEY_STEP = 10
-  const MAX_DIAL_ANGLE_STEP = 50
-  const DIAL_DAMPING_START = 16
-  const DIAL_DAMPING_FACTOR = 0.25
+  const MAX_DIAL_ANGLE_STEP = 60
+  const DIAL_DAMPING_START = 18
+  const DIAL_DAMPING_FACTOR = 0.15
+  const DIAL_SENSITIVITY = 1.18
 
   const normalizeAngleDiff = useCallback((currentAngle: number, previousAngle: number) => {
     let angleDiff = currentAngle - previousAngle
@@ -815,7 +816,7 @@ export default function SVGBoilingAnimation() {
   const getDampedAngleDiff = useCallback((angleDiff: number) => {
     const absAngleDiff = Math.abs(angleDiff)
     if (absAngleDiff <= DIAL_DAMPING_START) {
-      return angleDiff
+      return angleDiff * DIAL_SENSITIVITY
     }
 
     const normalizedDiff = Math.min(
@@ -824,8 +825,8 @@ export default function SVGBoilingAnimation() {
     )
     const dampingFactor = 1 - DIAL_DAMPING_FACTOR * normalizedDiff
 
-    return angleDiff * dampingFactor
-  }, [MAX_DIAL_ANGLE_STEP, DIAL_DAMPING_FACTOR, DIAL_DAMPING_START])
+    return angleDiff * dampingFactor * DIAL_SENSITIVITY
+  }, [DIAL_DAMPING_FACTOR, DIAL_DAMPING_START, DIAL_SENSITIVITY, MAX_DIAL_ANGLE_STEP])
 
   const handleDialKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
     const isTremorDial = dialNumber === 1
