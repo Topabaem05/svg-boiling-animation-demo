@@ -110,6 +110,9 @@ export default function SVGBoilingAnimation() {
   const animationIntervalRef = useRef<number | null>(null)
   const currentIndexRef = useRef(0)
 
+  const applyFiltersRef = useRef<() => void>(() => {})
+  const startAnimationRef = useRef<() => void>(() => {})
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const shouldShow = params.has("overlay") || params.has("debugOverlay")
@@ -361,6 +364,10 @@ export default function SVGBoilingAnimation() {
     setIsAnimating(true)
   }, [animationSpeed, updateAnimation])
 
+  // ref를 항상 최신 콜백으로 동기화
+  applyFiltersRef.current = applyFilters
+  startAnimationRef.current = startAnimation
+
   const stopAnimation = useCallback(() => {
     if (animationIntervalRef.current) {
       clearInterval(animationIntervalRef.current)
@@ -368,7 +375,7 @@ export default function SVGBoilingAnimation() {
     }
     setIsAnimating(false)
     
-    // 애니메이션 정지 후에도 필터는 현재 다이얼 값으로 유지
+    // 애니메이션 정지 후에도 필터는 현재 다이얼 값으로 유지 (ref를 사용하여 항상 최신값 참조)
     setTimeout(() => {
       const svg = animatedSvgRef.current
       if (svg) {
@@ -376,14 +383,14 @@ export default function SVGBoilingAnimation() {
         const displacement = svg.querySelector("feDisplacementMap")
         
         if (turbulence) {
-          turbulence.setAttribute("baseFrequency", Math.max(0.0001, tremorValue).toString())
+          turbulence.setAttribute("baseFrequency", Math.max(0.0001, tremorValueRef.current).toString())
         }
         if (displacement) {
-          displacement.setAttribute("scale", intensityValue.toString())
+          displacement.setAttribute("scale", intensityValueRef.current.toString())
         }
       }
     }, 10)
-  }, [intensityValue, tremorValue])
+  }, [])
 
   const resetValues = () => {
     tremorValueRef.current = TREMOR_MIN
@@ -921,10 +928,10 @@ export default function SVGBoilingAnimation() {
     isDraggingRef.current = false
     isDragging2Ref.current = false
     setTimeout(() => {
-      applyFilters()
+      applyFiltersRef.current()
     }, 10)
-    startAnimation()
-  }, [applyFilters, startAnimation])
+    startAnimationRef.current()
+  }, [])
 
   const handleDocumentMouseMove = useCallback((event: MouseEvent) => {
     if (isDraggingRef.current) {
@@ -970,12 +977,12 @@ export default function SVGBoilingAnimation() {
 
     // 드래그 종료 후 전체 필터를 다시 적용하여 지속성 보장
     setTimeout(() => {
-      applyFilters()
+      applyFiltersRef.current()
     }, 10) // 짧은 지연으로 상태 업데이트 완료 후 적용
 
     // 애니메이션 재시작
-    startAnimation()
-  }, [applyFilters, startAnimation])
+    startAnimationRef.current()
+  }, [])
 
   // 마우스 이벤트 리스너 추가
   useEffect(() => {
