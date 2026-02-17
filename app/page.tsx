@@ -52,16 +52,10 @@ export default function SVGBoilingAnimation() {
   const CANVAS_UPLOAD_MAX_WIDTH = 310
   const vwp = (px: number) => `${Math.round(px * viewportScale)}px`
   const vhp = (px: number) => `${Math.round(px * viewportScale)}px`
-  const ANGLE_MAX = 360
   const TREMOR_MIN = 0.001
   const TREMOR_MAX = 0.050
   const INTENSITY_MIN = 1.0
   const INTENSITY_MAX = 20.0
-  const valueToAngle = useCallback((val: number, min: number, max: number) => {
-    const frac = clamp((val - min) / (max - min), 0, 1)
-    if (frac >= 1) return ANGLE_MAX - 0.001
-    return frac * ANGLE_MAX
-  }, [ANGLE_MAX])
   const [viewportScale, setViewportScale] = useState(1)
   const scaledPadding = Math.round(DESIGN_PADDING * viewportScale)
   const scaledDesignWidth = Math.round(DESIGN_WIDTH * viewportScale)
@@ -92,18 +86,8 @@ export default function SVGBoilingAnimation() {
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
   const [tremorValue, setTremorValue] = useState(TREMOR_MIN)
   const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
-  const [currentRotation, setCurrentRotation] = useState(0)
-  const [currentRotation2, setCurrentRotation2] = useState(0)
-
-  const isDraggingRef = useRef(false)
-  const isDragging2Ref = useRef(false)
-  const startAngleRef = useRef(0)
-  const startAngle2Ref = useRef(0)
-
   const tremorValueRef = useRef(TREMOR_MIN)
   const intensityValueRef = useRef(INTENSITY_MIN)
-  const currentRotationRef = useRef(0)
-  const currentRotation2Ref = useRef(0)
 
   const animatedSvgRef = useRef<SVGSVGElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -319,8 +303,11 @@ export default function SVGBoilingAnimation() {
     const svg = animatedSvgRef.current
     if (!svg) return
 
+    const currentTremorValue = tremorValueRef.current
+    const currentIntensityValue = intensityValueRef.current
+
     const offset = OFFSET_ARRAY[currentIndexRef.current]
-    let newBaseFrequency = tremorValue + offset * animationScale
+    let newBaseFrequency = currentTremorValue + offset * animationScale
 
     // 항상 양수 유지
     newBaseFrequency = Math.max(0.0001, newBaseFrequency)
@@ -332,13 +319,13 @@ export default function SVGBoilingAnimation() {
       turbulence.setAttribute("baseFrequency", newBaseFrequency.toString())
     }
     if (displacement) {
-      displacement.setAttribute("scale", intensityValue.toString())
+      displacement.setAttribute("scale", currentIntensityValue.toString())
     }
 
     currentIndexRef.current = (currentIndexRef.current + 1) % OFFSET_ARRAY.length
-  }, [tremorValue, intensityValue, animationScale])
+  }, [animationScale])
 
-  const syncDialFilterValues = useCallback((nextTremorValue: number, nextIntensityValue: number) => {
+  const syncFilterValues = useCallback((nextTremorValue: number, nextIntensityValue: number) => {
     const svg = animatedSvgRef.current
     if (!svg) return
 
@@ -361,41 +348,14 @@ export default function SVGBoilingAnimation() {
     setIsAnimating(true)
   }, [animationSpeed, updateAnimation])
 
-  const stopAnimation = useCallback(() => {
-    if (animationIntervalRef.current) {
-      clearInterval(animationIntervalRef.current)
-      animationIntervalRef.current = null
-    }
-    setIsAnimating(false)
-    
-    // 애니메이션 정지 후에도 필터는 현재 다이얼 값으로 유지
-    setTimeout(() => {
-      const svg = animatedSvgRef.current
-      if (svg) {
-        const turbulence = svg.querySelector("feTurbulence")
-        const displacement = svg.querySelector("feDisplacementMap")
-        
-        if (turbulence) {
-          turbulence.setAttribute("baseFrequency", Math.max(0.0001, tremorValue).toString())
-        }
-        if (displacement) {
-          displacement.setAttribute("scale", intensityValue.toString())
-        }
-      }
-    }, 10)
-  }, [intensityValue, tremorValue])
-
   const resetValues = () => {
     tremorValueRef.current = TREMOR_MIN
     intensityValueRef.current = INTENSITY_MIN
-    currentRotationRef.current = 0
-    currentRotation2Ref.current = 0
     setTremorValue(TREMOR_MIN)
     setIntensityValue(INTENSITY_MIN)
-    setCurrentRotation(0)
-    setCurrentRotation2(0)
     setAnimationScale(0.2)
     setAnimationSpeed(100)
+    syncFilterValues(TREMOR_MIN, INTENSITY_MIN)
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -740,300 +700,19 @@ export default function SVGBoilingAnimation() {
     }
   }, [animationSpeed, isAnimating, startAnimation])
 
-  // 볼륨 다이얼 관련 함수들
-  const getAngle = useCallback((centerX: number, centerY: number, clientX: number, clientY: number) => {
-    const deltaX = clientX - centerX
-    const deltaY = clientY - centerY
-    return Math.atan2(deltaY, deltaX) * (180 / Math.PI)
-  }, [])
+  const handleTremorChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = clamp(Number(event.target.value), TREMOR_MIN, TREMOR_MAX)
+    tremorValueRef.current = nextValue
+    setTremorValue(nextValue)
+    syncFilterValues(nextValue, intensityValueRef.current)
+  }, [syncFilterValues])
 
-  const updateDialFromValues = useCallback((dialNumber: 1 | 2, nextValue: number) => {
-    if (dialNumber === 1) {
-      const clamped = clamp(nextValue, TREMOR_MIN, TREMOR_MAX)
-      tremorValueRef.current = clamped
-      currentRotationRef.current = valueToAngle(clamped, TREMOR_MIN, TREMOR_MAX)
-      setTremorValue(clamped)
-      setCurrentRotation(currentRotationRef.current)
-      syncDialFilterValues(clamped, intensityValueRef.current)
-      return
-    }
-
-    const clamped = clamp(nextValue, INTENSITY_MIN, INTENSITY_MAX)
-    intensityValueRef.current = clamped
-    currentRotation2Ref.current = valueToAngle(clamped, INTENSITY_MIN, INTENSITY_MAX)
-    setIntensityValue(clamped)
-    setCurrentRotation2(currentRotation2Ref.current)
-    syncDialFilterValues(tremorValueRef.current, clamped)
-  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
-
-  const updateTremorValue = useCallback((angleDiff: number, dialNumber: 1 | 2 = 1) => {
-    let nextTremorValue = tremorValueRef.current
-    let nextIntensityValue = intensityValueRef.current
-
-    if (dialNumber === 1) {
-      const valueRange = TREMOR_MAX - TREMOR_MIN
-      const valueChange = (angleDiff / 360) * valueRange
-      const unclamped = tremorValueRef.current + valueChange
-      nextTremorValue = clamp(Math.max(0.0001, unclamped), TREMOR_MIN, TREMOR_MAX)
-
-      tremorValueRef.current = nextTremorValue
-      currentRotationRef.current = valueToAngle(nextTremorValue, TREMOR_MIN, TREMOR_MAX)
-      setTremorValue(nextTremorValue)
-      setCurrentRotation(currentRotationRef.current)
-    } else {
-      const valueRange = INTENSITY_MAX - INTENSITY_MIN
-      const valueChange = (angleDiff / 360) * valueRange
-      const unclamped = intensityValueRef.current + valueChange
-      nextIntensityValue = clamp(Math.max(INTENSITY_MIN, unclamped), INTENSITY_MIN, INTENSITY_MAX)
-
-      intensityValueRef.current = nextIntensityValue
-      currentRotation2Ref.current = valueToAngle(nextIntensityValue, INTENSITY_MIN, INTENSITY_MAX)
-      setIntensityValue(nextIntensityValue)
-      setCurrentRotation2(currentRotation2Ref.current)
-    }
-
-    // 즉시 필터 업데이트 (드래그 중 실시간 반영)
-    syncDialFilterValues(tremorValueRef.current, intensityValueRef.current)
-  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
-
-  const DIAL_KEY_STEP = 10
-  const MAX_DIAL_ANGLE_STEP = 60
-  const DIAL_DAMPING_START = 18
-  const DIAL_DAMPING_FACTOR = 0.15
-  const DIAL_SENSITIVITY = 1.18
-
-  const normalizeAngleDiff = useCallback((currentAngle: number, previousAngle: number) => {
-    let angleDiff = currentAngle - previousAngle
-    if (angleDiff > 180) angleDiff -= 360
-    if (angleDiff < -180) angleDiff += 360
-    return angleDiff
-  }, [])
-
-  const isDialJump = useCallback((angleDiff: number) => {
-    return Math.abs(angleDiff) > MAX_DIAL_ANGLE_STEP
-  }, [MAX_DIAL_ANGLE_STEP])
-
-  const getDampedAngleDiff = useCallback((angleDiff: number) => {
-    const absAngleDiff = Math.abs(angleDiff)
-    if (absAngleDiff <= DIAL_DAMPING_START) {
-      return angleDiff * DIAL_SENSITIVITY
-    }
-
-    const normalizedDiff = Math.min(
-      1,
-      (absAngleDiff - DIAL_DAMPING_START) / (MAX_DIAL_ANGLE_STEP - DIAL_DAMPING_START)
-    )
-    const dampingFactor = 1 - DIAL_DAMPING_FACTOR * normalizedDiff
-
-    return angleDiff * dampingFactor * DIAL_SENSITIVITY
-  }, [DIAL_DAMPING_FACTOR, DIAL_DAMPING_START, DIAL_SENSITIVITY, MAX_DIAL_ANGLE_STEP])
-
-  const handleDialKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
-    const isTremorDial = dialNumber === 1
-    if (
-      event.key === "ArrowLeft" ||
-      event.key === "ArrowDown" ||
-      event.key === "ArrowRight" ||
-      event.key === "ArrowUp" ||
-      event.key === "Home" ||
-      event.key === "End"
-    ) {
-      event.preventDefault()
-      stopAnimation()
-    }
-
-    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
-      updateTremorValue(-DIAL_KEY_STEP, dialNumber)
-      startAnimation()
-      return
-    }
-
-    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
-      updateTremorValue(DIAL_KEY_STEP, dialNumber)
-      startAnimation()
-      return
-    }
-
-    if (event.key === "Home") {
-      updateDialFromValues(dialNumber, isTremorDial ? TREMOR_MIN : INTENSITY_MIN)
-      startAnimation()
-      return
-    }
-
-    if (event.key === "End") {
-      updateDialFromValues(dialNumber, isTremorDial ? TREMOR_MAX : INTENSITY_MAX)
-      startAnimation()
-    }
-  }, [startAnimation, stopAnimation, updateDialFromValues, updateTremorValue])
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
-    // 애니메이션만 중지, 필터는 유지
-    stopAnimation()
-
-    const rect = e.currentTarget.getBoundingClientRect()
-    const centerX = rect.left + rect.width / 2
-    const centerY = rect.top + rect.height / 2
-
-    if (dialNumber === 1) {
-      isDraggingRef.current = true
-      startAngleRef.current = getAngle(centerX, centerY, e.clientX, e.clientY)
-    } else {
-      isDragging2Ref.current = true
-      startAngle2Ref.current = getAngle(centerX, centerY, e.clientX, e.clientY)
-    }
-    e.preventDefault()
-  }
-
-  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
-    stopAnimation()
-
-    const touch = e.touches[0]
-    if (!touch) return
-
-    const rect = e.currentTarget.getBoundingClientRect()
-    const centerX = rect.left + rect.width / 2
-    const centerY = rect.top + rect.height / 2
-
-    if (dialNumber === 1) {
-      isDraggingRef.current = true
-      startAngleRef.current = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-    } else {
-      isDragging2Ref.current = true
-      startAngle2Ref.current = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-    }
-    e.preventDefault()
-  }, [getAngle, stopAnimation])
-
-  const handleDocumentTouchMove = useCallback((e: TouchEvent) => {
-    const touch = e.touches[0]
-    if (!touch) return
-
-    if (isDraggingRef.current) {
-      const volumeDial = document.getElementById('tremor-circle')
-      if (volumeDial) {
-        const rect = volumeDial.getBoundingClientRect()
-        const centerX = rect.left + rect.width / 2
-        const centerY = rect.top + rect.height / 2
-
-        const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-        const angleDiff = normalizeAngleDiff(currentAngle, startAngleRef.current)
-
-        if (isDialJump(angleDiff)) {
-          startAngleRef.current = currentAngle
-        } else {
-          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
-          updateTremorValue(dampedAngleDiff, 1)
-        }
-        startAngleRef.current = currentAngle
-      }
-    }
-
-    if (isDragging2Ref.current) {
-      const volumeDial2 = document.getElementById('tremor-circle-2')
-      if (volumeDial2) {
-        const rect = volumeDial2.getBoundingClientRect()
-        const centerX = rect.left + rect.width / 2
-        const centerY = rect.top + rect.height / 2
-
-        const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
-        const angleDiff = normalizeAngleDiff(currentAngle, startAngle2Ref.current)
-
-        if (isDialJump(angleDiff)) {
-          startAngle2Ref.current = currentAngle
-        } else {
-          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
-          updateTremorValue(dampedAngleDiff, 2)
-        }
-        startAngle2Ref.current = currentAngle
-      }
-    }
-
-    e.preventDefault()
-  }, [getAngle, getDampedAngleDiff, isDialJump, normalizeAngleDiff, updateTremorValue])
-
-  const handleDocumentTouchEnd = useCallback(() => {
-    isDraggingRef.current = false
-    isDragging2Ref.current = false
-    setTimeout(() => {
-      applyFilters()
-    }, 10)
-    startAnimation()
-  }, [applyFilters, startAnimation])
-
-  const handleDocumentMouseMove = useCallback((event: MouseEvent) => {
-    if (isDraggingRef.current) {
-      const volumeDial = document.getElementById('tremor-circle')
-      if (volumeDial) {
-        const rect = volumeDial.getBoundingClientRect()
-        const centerX = rect.left + rect.width / 2
-        const centerY = rect.top + rect.height / 2
-
-        const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
-        const angleDiff = normalizeAngleDiff(currentAngle, startAngleRef.current)
-
-        if (isDialJump(angleDiff)) {
-          startAngleRef.current = currentAngle
-        } else {
-          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
-          updateTremorValue(dampedAngleDiff, 1)
-        }
-        startAngleRef.current = currentAngle
-      }
-    }
-
-    if (isDragging2Ref.current) {
-      const volumeDial2 = document.getElementById('tremor-circle-2')
-      if (volumeDial2) {
-        const rect = volumeDial2.getBoundingClientRect()
-        const centerX = rect.left + rect.width / 2
-        const centerY = rect.top + rect.height / 2
-
-        const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
-        const angleDiff = normalizeAngleDiff(currentAngle, startAngle2Ref.current)
-
-        if (isDialJump(angleDiff)) {
-          startAngle2Ref.current = currentAngle
-        } else {
-          const dampedAngleDiff = getDampedAngleDiff(angleDiff)
-          updateTremorValue(dampedAngleDiff, 2)
-        }
-        startAngle2Ref.current = currentAngle
-      }
-    }
-  }, [getAngle, getDampedAngleDiff, isDialJump, normalizeAngleDiff, updateTremorValue])
-
-  const handleDocumentMouseUp = useCallback(() => {
-    isDraggingRef.current = false
-    isDragging2Ref.current = false
-
-    // 드래그 종료 후 전체 필터를 다시 적용하여 지속성 보장
-    setTimeout(() => {
-      applyFilters()
-    }, 10) // 짧은 지연으로 상태 업데이트 완료 후 적용
-
-    // 애니메이션 재시작
-    startAnimation()
-  }, [applyFilters, startAnimation])
-
-  // 마우스 이벤트 리스너 추가
-  useEffect(() => {
-    document.addEventListener('mousemove', handleDocumentMouseMove)
-    document.addEventListener('mouseup', handleDocumentMouseUp)
-    document.addEventListener('touchmove', handleDocumentTouchMove, { passive: false })
-    document.addEventListener('touchend', handleDocumentTouchEnd, { passive: false })
-
-    return () => {
-      document.removeEventListener('mousemove', handleDocumentMouseMove)
-      document.removeEventListener('mouseup', handleDocumentMouseUp)
-      document.removeEventListener('touchmove', handleDocumentTouchMove)
-      document.removeEventListener('touchend', handleDocumentTouchEnd)
-    }
-  }, [
-    handleDocumentMouseMove,
-    handleDocumentMouseUp,
-    handleDocumentTouchMove,
-    handleDocumentTouchEnd,
-  ])
+  const handleIntensityChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = clamp(Number(event.target.value), INTENSITY_MIN, INTENSITY_MAX)
+    intensityValueRef.current = nextValue
+    setIntensityValue(nextValue)
+    syncFilterValues(tremorValueRef.current, nextValue)
+  }, [syncFilterValues])
 
   return (
       <div style={{
@@ -1295,218 +974,64 @@ export default function SVGBoilingAnimation() {
         </div>
       </div>
       
-      {/* 볼륨 다이얼들 */}
-      <div style={{
-        position: 'absolute',
-        left: vwp(50),
-        top: vhp(559),
-        width: vwp(290),
-        height: vhp(167),
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        {/* 첫 번째 다이얼 - 떨림 세기 */}
-        <div style={{
-          width: vwp(130),
-          height: vwp(130),
-          position: 'relative'
-        }}>
-          {/* Radial Elements */}
-          <div style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: vwp(85),
-            height: vwp(85)
-          }}>
-            {Array.from({ length: 24 }, (_, i) => {
-              const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345]
-              return (
-                <div
-                  key={i}
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transformOrigin: '50% 50%',
-                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
-                  }}
-                >
-              <NextImage src="/svg/Vector 98.svg" alt="Radial element" width={5} height={19} style={{ transform: 'scale(1.0)', display: 'block' }} />
-                </div>
-              )
-            })}
-          </div>
-          {/* 다이얼 중앙 */}
-          <div style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: vwp(85),
-            height: vwp(85),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100
-          }}>
-            <button
-              id="tremor-circle"
-              type="button"
-              className="control-button"
-              role="slider"
-              aria-label="떨림 세기 조절"
-              aria-describedby="tremor-value"
-              aria-valuemin={TREMOR_MIN}
-              aria-valuemax={TREMOR_MAX}
-              aria-valuenow={tremorValue}
-              onMouseDown={(e) => handleMouseDown(e, 1)}
-              onTouchStart={(e) => handleTouchStart(e, 1)}
-              onKeyDown={(e) => handleDialKeyDown(e, 1)}
-              style={{
-                width: '100%',
-                height: '100%',
-                cursor: 'grab',
-                userSelect: 'none',
-                touchAction: 'none',
-              }}
-            >
-              <NextImage 
-                src="/svg/Group 241.svg" 
-                alt="Tremor circle" 
-                width={116}
-                height={117}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  transformOrigin: 'center center',
-                  transform: `rotate(${currentRotation}deg)`,
-                  transition: 'transform 80ms linear',
-                  willChange: 'transform',
-                  filter: 'none'
-                }}
-              />
-            </button>
-          </div>
-        </div>
-        
-        {/* 두 번째 다이얼 - 효과 강도 */}
-        <div style={{
-          width: vwp(130),
-          height: vwp(130),
-          position: 'relative'
-        }}>
-          {/* Radial Elements */}
-          <div style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: vwp(85),
-            height: vwp(85)
-          }}>
-            {Array.from({ length: 24 }, (_, i) => {
-              const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345]
-              return (
-                <div
-                  key={i}
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transformOrigin: '50% 50%',
-                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
-                  }}
-                >
-              <NextImage src="/svg/Vector 98.svg" alt="Radial element" width={5} height={19} style={{ transform: 'scale(1.0)', display: 'block' }} />
-                </div>
-              )
-            })}
-          </div>
-          {/* 다이얼 중앙 */}
-          <div style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: vwp(85),
-            height: vwp(85),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100
-          }}>
-            <button
-              id="tremor-circle-2"
-              type="button"
-              className="control-button"
-              role="slider"
-              aria-label="강도 조절"
-              aria-describedby="intensity-value"
-              aria-valuemin={INTENSITY_MIN}
-              aria-valuemax={INTENSITY_MAX}
-              aria-valuenow={intensityValue}
-              onMouseDown={(e) => handleMouseDown(e, 2)}
-              onTouchStart={(e) => handleTouchStart(e, 2)}
-              onKeyDown={(e) => handleDialKeyDown(e, 2)}
-              style={{
-                width: '100%',
-                height: '100%',
-                cursor: 'grab',
-                userSelect: 'none',
-                touchAction: 'none',
-              }}
-            >
-              <NextImage 
-                src="/svg/Group 241-4.svg" 
-                alt="Intensity circle" 
-                width={116}
-                height={117}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  transformOrigin: 'center center',
-                  transform: `rotate(${currentRotation2}deg)`,
-                  transition: 'transform 80ms linear',
-                  willChange: 'transform',
-                  filter: 'none'
-                }}
-              />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 텍스트 라벨들 */}
       <div style={{
         position: 'absolute',
         left: vwp(30),
-        top: vhp(740),
-        fontSize: vwp(25),
-        color: 'rgb(0, 0, 0)',
-        textAlign: 'center',
-        whiteSpace: 'nowrap',
-        lineHeight: 'normal',
-        width: vwp(140)
+        top: vhp(559),
+        width: vwp(333),
+        display: 'flex',
+        flexDirection: 'column',
+        gap: vhp(14)
       }}>
-        떨림 세기 : <span id="tremor-value" role="status" aria-live="polite" style={{ display: 'inline-block', width: vwp(50), textAlign: 'left', fontWeight: 'bold' }}>{tremorValue.toFixed(3)}</span>
-      </div>
-      
-      <div style={{
-        position: 'absolute',
-        left: vwp(220),
-        top: vhp(740),
-        fontSize: vwp(25),
-        color: 'rgb(0, 0, 0)',
-        textAlign: 'center',
-        whiteSpace: 'nowrap',
-        lineHeight: 'normal',
-        width: vwp(140),
-        right: 0
-      }}>
-        세기 강도 : <span id="intensity-value" role="status" aria-live="polite" style={{ display: 'inline-block', width: vwp(40), textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: vwp(10),
+          color: 'rgb(0, 0, 0)',
+        }}>
+          <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>떨림 세기 :</div>
+          <input
+            type="range"
+            min={TREMOR_MIN}
+            max={TREMOR_MAX}
+            step={0.001}
+            value={tremorValue}
+            onChange={handleTremorChange}
+            aria-label="떨림 세기 슬라이더"
+            style={{
+              flex: 1,
+              accentColor: '#FF6A6A',
+            }}
+          />
+          <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
+            {tremorValue.toFixed(3)}
+          </div>
+        </div>
+
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: vwp(10),
+          color: 'rgb(0, 0, 0)',
+        }}>
+          <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>세기 강도 :</div>
+          <input
+            type="range"
+            min={INTENSITY_MIN}
+            max={INTENSITY_MAX}
+            step={0.1}
+            value={intensityValue}
+            onChange={handleIntensityChange}
+            aria-label="세기 강도 슬라이더"
+            style={{
+              flex: 1,
+              accentColor: '#FF6A6A',
+            }}
+          />
+          <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
+            {intensityValue.toFixed(1)}
+          </div>
+        </div>
       </div>
 
       <div style={{
