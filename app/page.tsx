@@ -714,18 +714,8 @@ export default function SVGBoilingAnimation() {
     }
   }, [svgContent, applyFilters])
 
-  // 컴포넌트 마운트 시 초기 설정
+  // 컴포넌트 마운트 시 초기 설정 (마운트 시 1회만 실행)
   useEffect(() => {
-    // 초기 각도를 값에 맞춰 0~350도로 설정
-    const initialRotation = valueToAngle(TREMOR_MIN, TREMOR_MIN, TREMOR_MAX)
-    const initialRotation2 = valueToAngle(INTENSITY_MIN, INTENSITY_MIN, INTENSITY_MAX)
-    tremorValueRef.current = TREMOR_MIN
-    intensityValueRef.current = INTENSITY_MIN
-    currentRotationRef.current = initialRotation
-    currentRotation2Ref.current = initialRotation2
-    setCurrentRotation(initialRotation)
-    setCurrentRotation2(initialRotation2)
-
     // 초기 필터 적용
     const timer = setTimeout(() => {
       applyFilters()
@@ -736,9 +726,13 @@ export default function SVGBoilingAnimation() {
 
     return () => {
       clearTimeout(timer)
-      stopAnimation()
+      if (animationIntervalRef.current) {
+        clearInterval(animationIntervalRef.current)
+        animationIntervalRef.current = null
+      }
     }
-  }, [applyFilters, startAnimation, stopAnimation, valueToAngle])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (isAnimating) {
