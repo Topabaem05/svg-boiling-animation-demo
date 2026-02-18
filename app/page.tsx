@@ -68,9 +68,17 @@ export default function SVGBoilingAnimation() {
   const CANVAS_VIEWBOX_WIDTH = 315
   const CANVAS_VIEWBOX_HEIGHT = 445
   const CANVAS_UPLOAD_MAX_WIDTH = 310
+  const CANVAS_LEFT = 30
+  const CANVAS_WIDTH = 350
   const KNOB_PANEL_TOP = 559
+  const KNOB_PANEL_LEFT = 30
+  const KNOB_PANEL_WIDTH = 333
+  const LAYER_PANEL_WIDTH = 333
+  const LAYER_PANEL_SIDE_GAP = 10
+  const LAYER_PANEL_SIDE_LEFT = KNOB_PANEL_LEFT + KNOB_PANEL_WIDTH + LAYER_PANEL_SIDE_GAP
   const LAYER_PANEL_TOP = 700
   const LAYER_PANEL_SPACING = 8
+  const LAYER_PANEL_TOOLBAR_GAP = 8
   const TOOLBAR_TOP = 802
   const TREMOR_MIN = 0.001
   const TREMOR_MAX = 0.065
@@ -81,15 +89,31 @@ export default function SVGBoilingAnimation() {
   const ANIMATION_SCALE_DEFAULT = 0.26
   const ANIMATION_SCALE_MIN = 0.01
   const [viewportScale, setViewportScale] = useState(1)
-  const scaledSize = (px: number) => Math.round(px * viewportScale)
+  const scaledSize = (px: number, scale = viewportScale) => Math.round(px * scale)
   const vwp = (px: number) => `${scaledSize(px)}px`
   const vhp = (px: number) => `${scaledSize(px)}px`
-  const PANEL_WIDTH = vwp(333)
+  const PANEL_WIDTH = vwp(LAYER_PANEL_WIDTH)
+  const KNOB_PANEL_LEFT_PX_STYLE = vwp(KNOB_PANEL_LEFT)
+  const CANVAS_WIDTH_STYLE = vwp(CANVAS_WIDTH)
+  const KNOB_PANEL_TOP_PX = scaledSize(KNOB_PANEL_TOP)
   const LAYER_PANEL_TOP_PX = scaledSize(LAYER_PANEL_TOP)
+  const LAYER_PANEL_SIDE_LEFT_PX = scaledSize(LAYER_PANEL_SIDE_LEFT)
+  const LAYER_PANEL_SIDE_GAP_PX = scaledSize(LAYER_PANEL_TOOLBAR_GAP)
   const TOOLBAR_TOP_PX = scaledSize(TOOLBAR_TOP)
-  const LAYER_PANEL_MAX_HEIGHT_PX = Math.max(scaledSize(90), TOOLBAR_TOP_PX - LAYER_PANEL_TOP_PX - scaledSize(LAYER_PANEL_SPACING))
-  const KNOB_PANEL_TOP_PX_STYLE = vhp(KNOB_PANEL_TOP)
-  const LAYER_PANEL_TOP_PX_STYLE = vhp(LAYER_PANEL_TOP)
+  const KNOB_PANEL_TOP_PX_STYLE = `${KNOB_PANEL_TOP_PX}px`
+  const [isLayerPanelSideLayout, setIsLayerPanelSideLayout] = useState(false)
+  const LAYER_PANEL_CURRENT_LEFT_PX = isLayerPanelSideLayout
+    ? LAYER_PANEL_SIDE_LEFT_PX
+    : scaledSize(KNOB_PANEL_LEFT)
+  const LAYER_PANEL_CURRENT_TOP_PX = isLayerPanelSideLayout
+    ? KNOB_PANEL_TOP_PX
+    : LAYER_PANEL_TOP_PX
+  const LAYER_PANEL_TOP_PX_STYLE = `${LAYER_PANEL_CURRENT_TOP_PX}px`
+  const LAYER_PANEL_LEFT_PX_STYLE = `${LAYER_PANEL_CURRENT_LEFT_PX}px`
+  const LAYER_PANEL_MAX_HEIGHT_PX = Math.max(
+    scaledSize(90),
+    TOOLBAR_TOP_PX - LAYER_PANEL_CURRENT_TOP_PX - LAYER_PANEL_SIDE_GAP_PX,
+  )
   const TOOLBAR_TOP_PX_STYLE = vhp(TOOLBAR_TOP)
   const LAYER_PANEL_MAX_HEIGHT_STYLE = `${LAYER_PANEL_MAX_HEIGHT_PX}px`
   const scaledPadding = Math.round(DESIGN_PADDING * viewportScale)
@@ -435,12 +459,23 @@ export default function SVGBoilingAnimation() {
     reader.readAsDataURL(file)
   }, [])
 
+  const handleResize = useCallback(() => {
+    const widthScale = window.innerWidth / (DESIGN_WIDTH + DESIGN_PADDING * 2)
+    const heightScale = window.innerHeight / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
+    const nextScale = Math.min(widthScale, heightScale, VIEWPORT_SCALE_MAX)
+    const nextDesignWidth = Math.round(DESIGN_WIDTH * nextScale)
+    const layerPanelSideLeft = Math.round(LAYER_PANEL_SIDE_LEFT * nextScale)
+    const layerPanelWidth = Math.round(LAYER_PANEL_WIDTH * nextScale)
+    const layerPanelGap = Math.round(12 * nextScale)
+    const contentLeftOffset = (window.innerWidth - nextDesignWidth) / 2
+    const hasSideLayout =
+      contentLeftOffset + layerPanelSideLeft + layerPanelWidth + layerPanelGap <= window.innerWidth
+
+    setIsLayerPanelSideLayout(hasSideLayout)
+    setViewportScale(nextScale)
+  }, [DESIGN_HEIGHT, DESIGN_PADDING, DESIGN_WIDTH, LAYER_PANEL_SIDE_LEFT, LAYER_PANEL_WIDTH, VIEWPORT_SCALE_MAX])
+
   useEffect(() => {
-    const handleResize = () => {
-      const widthScale = window.innerWidth / (DESIGN_WIDTH + DESIGN_PADDING * 2)
-      const heightScale = window.innerHeight / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
-      setViewportScale(Math.min(widthScale, heightScale, VIEWPORT_SCALE_MAX))
-    }
 
     handleResize()
     window.addEventListener("resize", handleResize)
@@ -448,7 +483,7 @@ export default function SVGBoilingAnimation() {
     return () => {
       window.removeEventListener("resize", handleResize)
     }
-  }, [DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_PADDING, VIEWPORT_SCALE_MAX])
+  }, [handleResize])
 
   const applyFilters = useCallback(() => {
     const svg = animatedSvgRef.current
@@ -1183,9 +1218,9 @@ export default function SVGBoilingAnimation() {
       {/* Canvas Area */}
       <div style={{
         position: 'absolute',
-        left: vwp(30),
+        left: `${scaledSize(CANVAS_LEFT)}px`,
         top: vhp(65),
-        width: vwp(350),
+        width: CANVAS_WIDTH_STYLE,
         height: vhp(511)
       }}>
         <NextImage src="/svg/Rectangle-267.svg" alt="Canvas background" width={378} height={519} style={{
@@ -1219,7 +1254,7 @@ export default function SVGBoilingAnimation() {
       
       <div style={{
         position: 'absolute',
-        left: vwp(30),
+        left: KNOB_PANEL_LEFT_PX_STYLE,
         top: KNOB_PANEL_TOP_PX_STYLE,
         width: PANEL_WIDTH,
         display: 'flex',
@@ -1314,7 +1349,7 @@ export default function SVGBoilingAnimation() {
       <div
         style={{
           position: 'absolute',
-          left: vwp(30),
+          left: LAYER_PANEL_LEFT_PX_STYLE,
           top: LAYER_PANEL_TOP_PX_STYLE,
           width: PANEL_WIDTH,
           maxHeight: LAYER_PANEL_MAX_HEIGHT_STYLE,
