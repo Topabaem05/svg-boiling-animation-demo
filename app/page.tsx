@@ -1032,44 +1032,39 @@ export default function SVGBoilingAnimation() {
             {intensityValue.toFixed(1)}
           </div>
         </div>
-      </div>
-
-      <div style={{
-        position: 'absolute',
-        left: vwp(30),
-        top: vhp(770),
-        width: vwp(333),
-        display: 'flex',
-        alignItems: 'center',
-        gap: vwp(10),
-        color: 'rgb(0, 0, 0)',
-      }}>
         <div style={{
-          fontSize: vwp(18),
-          whiteSpace: 'nowrap',
+          display: 'flex',
+          alignItems: 'center',
+          gap: vwp(10),
+          color: 'rgb(0, 0, 0)',
         }}>
-          보일링 폭 :
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={animationScale}
-          onChange={(e) => setAnimationScale(Number(e.target.value))}
-          aria-label="보일링 애니메이션 폭"
-          style={{
-            flex: 1,
-            accentColor: '#FF6A6A',
-          }}
-        />
-        <div style={{
-          fontSize: vwp(18),
-          width: vwp(45),
-          textAlign: 'right',
-          fontWeight: 'bold',
-        }}>
-          {animationScale.toFixed(2)}
+          <div style={{
+            fontSize: vwp(18),
+            whiteSpace: 'nowrap',
+          }}>
+            보일링 폭 :
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={animationScale}
+            onChange={(e) => setAnimationScale(Number(e.target.value))}
+            aria-label="보일링 애니메이션 폭"
+            style={{
+              flex: 1,
+              accentColor: '#FF6A6A',
+            }}
+          />
+          <div style={{
+            fontSize: vwp(18),
+            width: vwp(45),
+            textAlign: 'right',
+            fontWeight: 'bold',
+          }}>
+            {animationScale.toFixed(2)}
+          </div>
         </div>
       </div>
 
