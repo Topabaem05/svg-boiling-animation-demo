@@ -56,6 +56,8 @@ export default function SVGBoilingAnimation() {
   const TREMOR_MAX = 0.050
   const INTENSITY_MIN = 1.0
   const INTENSITY_MAX = 20.0
+  const ANIMATION_SCALE_DEFAULT = 0.2
+  const ANIMATION_SCALE_MIN = 0.01
   const [viewportScale, setViewportScale] = useState(1)
   const scaledPadding = Math.round(DESIGN_PADDING * viewportScale)
   const scaledDesignWidth = Math.round(DESIGN_WIDTH * viewportScale)
@@ -72,7 +74,7 @@ export default function SVGBoilingAnimation() {
   }
   const overlayFileInputRef = useRef<HTMLInputElement>(null)
   const overlayTargetSlotRef = useRef<OverlaySlot>(DEFAULT_OVERLAY_SETTINGS.slot)
-  const [animationScale, setAnimationScale] = useState(0.2)
+  const [animationScale, setAnimationScale] = useState(ANIMATION_SCALE_DEFAULT)
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -88,6 +90,7 @@ export default function SVGBoilingAnimation() {
   const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
   const tremorValueRef = useRef(TREMOR_MIN)
   const intensityValueRef = useRef(INTENSITY_MIN)
+  const animationScaleRef = useRef(ANIMATION_SCALE_DEFAULT)
 
   const animatedSvgRef = useRef<SVGSVGElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -307,7 +310,7 @@ export default function SVGBoilingAnimation() {
     const currentIntensityValue = intensityValueRef.current
 
     const offset = OFFSET_ARRAY[currentIndexRef.current]
-    let newBaseFrequency = currentTremorValue + offset * animationScale
+    let newBaseFrequency = currentTremorValue + offset * animationScaleRef.current
 
     // 항상 양수 유지
     newBaseFrequency = Math.max(0.0001, newBaseFrequency)
@@ -323,7 +326,7 @@ export default function SVGBoilingAnimation() {
     }
 
     currentIndexRef.current = (currentIndexRef.current + 1) % OFFSET_ARRAY.length
-  }, [animationScale])
+  }, [])
 
   const syncFilterValues = useCallback((nextTremorValue: number, nextIntensityValue: number) => {
     const svg = animatedSvgRef.current
@@ -351,9 +354,10 @@ export default function SVGBoilingAnimation() {
   const resetValues = () => {
     tremorValueRef.current = TREMOR_MIN
     intensityValueRef.current = INTENSITY_MIN
+    animationScaleRef.current = ANIMATION_SCALE_DEFAULT
     setTremorValue(TREMOR_MIN)
     setIntensityValue(INTENSITY_MIN)
-    setAnimationScale(0.2)
+    setAnimationScale(ANIMATION_SCALE_DEFAULT)
     setAnimationSpeed(100)
     syncFilterValues(TREMOR_MIN, INTENSITY_MIN)
   }
@@ -714,6 +718,12 @@ export default function SVGBoilingAnimation() {
     syncFilterValues(tremorValueRef.current, nextValue)
   }, [syncFilterValues])
 
+  const handleAnimationScaleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = clamp(Number(event.target.value), ANIMATION_SCALE_MIN, 1)
+    animationScaleRef.current = nextValue
+    setAnimationScale(nextValue)
+  }, [])
+
   return (
       <div style={{
         minHeight: '100dvh',
@@ -1046,11 +1056,11 @@ export default function SVGBoilingAnimation() {
           </div>
           <input
             type="range"
-            min={0}
+            min={ANIMATION_SCALE_MIN}
             max={1}
             step={0.01}
             value={animationScale}
-            onChange={(e) => setAnimationScale(Number(e.target.value))}
+            onChange={handleAnimationScaleChange}
             aria-label="보일링 애니메이션 폭"
             style={{
               flex: 1,
