@@ -3,7 +3,7 @@
 import type React from "react"
 
 import NextImage from "next/image"
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 
 const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
 const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
@@ -86,6 +86,12 @@ export default function SVGBoilingAnimation() {
   const [originalWidth, setOriginalWidth] = useState(200)
   const [originalHeight, setOriginalHeight] = useState(200)
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
+  const svgMarkup = useMemo(
+    () => ({
+      __html: svgContent,
+    }),
+    [svgContent],
+  )
   const [tremorValue, setTremorValue] = useState(TREMOR_MIN)
   const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
   const tremorValueRef = useRef(TREMOR_MIN)
@@ -979,7 +985,7 @@ export default function SVGBoilingAnimation() {
             height={CANVAS_AREA_HEIGHT.toString()}
             preserveAspectRatio="xMidYMid meet"
             style={{ width: '100%', height: '100%' }}
-            dangerouslySetInnerHTML={{ __html: svgContent }}
+            dangerouslySetInnerHTML={svgMarkup}
           />
         </div>
       </div>
