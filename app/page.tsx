@@ -22,6 +22,8 @@ const FRAME_DURATION_STEP_MS = 100
 const FRAME_DURATION_MIN_SECONDS = FRAME_DURATION_MIN_MS / 1000
 const FRAME_DURATION_MAX_SECONDS = FRAME_DURATION_MAX_MS / 1000
 const FRAME_DURATION_STEP_SECONDS = FRAME_DURATION_STEP_MS / 1000
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+const MAX_UPLOAD_MB = MAX_UPLOAD_BYTES / (1024 * 1024)
 
 const SUPPORTED_RASTER_EXTENSIONS = [
   ".png",
@@ -67,6 +69,13 @@ type OverlayPersistedState = {
   settings: OverlaySettings
   images: Partial<Record<OverlaySlot, OverlayImage>>
 }
+
+type ProcessingStage =
+  | "idle"
+  | "frameUpload"
+  | "rasterTrace"
+  | "overlayUpload"
+  | "gifExport"
 
 const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   scope: "none",
@@ -120,6 +129,19 @@ export default function SVGBoilingAnimation() {
     ].join(","),
     [],
   )
+  const canRunFilePipeline = useCallback(() => {
+    if (typeof window === "undefined") return false
+    if (!window.File || !window.FileReader || !window.URL || !window.Blob || !window.Image) {
+      return false
+    }
+
+    return true
+  }, [])
+
+  const canRunGifWorker = useCallback(() => {
+    if (typeof window === "undefined") return false
+    return !!window.Worker
+  }, [])
   const mobileSliderTabs: Array<{ key: MobileSliderKey; label: string }> = [
     { key: "tremor", label: "떨림 강도" },
     { key: "intensity", label: "세기 강도" },
@@ -194,6 +216,23 @@ export default function SVGBoilingAnimation() {
   const [originalWidth, setOriginalWidth] = useState(200)
   const [originalHeight, setOriginalHeight] = useState(200)
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
+  const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null)
+  const [processingStage, setProcessingStage] = useState<ProcessingStage>("idle")
+  const isProcessing = processingStage !== "idle"
+  const processingMessage = useMemo(() => {
+    switch (processingStage) {
+      case "frameUpload":
+        return "프레임 파일을 기기에서 분석 중입니다."
+      case "rasterTrace":
+        return "레스터 이미지를 SVG로 변환하는 중입니다."
+      case "overlayUpload":
+        return "오버레이 이미지를 기기에서 처리 중입니다."
+      case "gifExport":
+        return "GIF 렌더링을 기기에서 생성 중입니다."
+      default:
+        return null
+    }
+  }, [processingStage])
   const svgMarkup = useMemo(
     () => ({
       __html: svgContent,
@@ -487,16 +526,35 @@ export default function SVGBoilingAnimation() {
   }, [])
 
   const handleOverlayFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canRunFilePipeline()) {
+      setUploadErrorMessage("현재 브라우저에서는 오버레이 업로드를 지원하지 않습니다.")
+      event.target.value = ""
+      return
+    }
+
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file) return
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadErrorMessage(`이미지 업로드는 최대 ${MAX_UPLOAD_MB}MB까지 가능합니다.`)
+      setProcessingStage("idle")
+      return
+    }
+
+    setProcessingStage("overlayUpload")
+    setUploadErrorMessage(null)
 
     const slot = overlayTargetSlotRef.current
     const reader = new FileReader()
 
     reader.onload = () => {
       const result = reader.result
-      if (typeof result !== "string") return
+      if (typeof result !== "string") {
+        setUploadErrorMessage("오버레이 이미지를 읽는 중 오류가 발생했습니다.")
+        setProcessingStage("idle")
+        return
+      }
 
       const img = new Image()
       img.onload = () => {
@@ -516,9 +574,12 @@ export default function SVGBoilingAnimation() {
           ...prev,
           slot,
         }))
+        setProcessingStage("idle")
       }
 
       img.onerror = () => {
+        setUploadErrorMessage("오버레이 이미지를 읽는 중 오류가 발생했습니다.")
+        setProcessingStage("idle")
         console.error("Failed to read overlay image")
       }
 
@@ -526,11 +587,13 @@ export default function SVGBoilingAnimation() {
     }
 
     reader.onerror = () => {
+      setUploadErrorMessage("오버레이 이미지를 읽는 중 오류가 발생했습니다.")
+      setProcessingStage("idle")
       console.error("Failed to read overlay file")
     }
 
     reader.readAsDataURL(file)
-  }, [])
+  }, [canRunFilePipeline])
 
   const handleResize = useCallback(() => {
     const widthScale = window.innerWidth / (DESIGN_WIDTH + DESIGN_PADDING * 2)
@@ -766,52 +829,101 @@ export default function SVGBoilingAnimation() {
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canRunFilePipeline()) {
+      setUploadErrorMessage("현재 브라우저에서는 이미지 업로드를 지원하지 않습니다.")
+      event.target.value = ""
+      return
+    }
+
     const input = event.target
     resetValues()
+    setUploadErrorMessage(null)
     const file = input.files?.[0]
     if (!file) return
+
+    setProcessingStage("frameUpload")
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadErrorMessage(`이미지 업로드는 최대 ${MAX_UPLOAD_MB}MB까지 가능합니다.`)
+      setProcessingStage("idle")
+      input.value = ""
+      return
+    }
 
     if (isSvgFile(file)) {
       const reader = new FileReader()
 
       reader.onload = (uploadEvent) => {
         const content = uploadEvent.target?.result
-        if (typeof content !== "string") return
+        if (typeof content !== "string") {
+          setUploadErrorMessage("SVG 파일을 읽는 데 실패했습니다.")
+          setProcessingStage("idle")
+          input.value = ""
+          return
+        }
 
         const nextLayer = createFrameLayerFromSvg(file, content)
-        if (!nextLayer) return
+        if (!nextLayer) {
+          setUploadErrorMessage("SVG 파일을 읽는 데 실패했습니다.")
+          setProcessingStage("idle")
+          input.value = ""
+          return
+        }
 
         addFrameLayer(nextLayer)
+        setUploadErrorMessage(null)
+        setProcessingStage("idle")
+        input.value = ""
       }
 
       reader.onerror = () => {
+        setUploadErrorMessage("SVG 파일을 읽는 중 오류가 발생했습니다.")
         console.error("Error reading SVG file")
+        setProcessingStage("idle")
+        input.value = ""
       }
 
       reader.readAsText(file)
-      input.value = ""
       return
     }
 
     if (isRasterFile(file)) {
       try {
+        setProcessingStage("rasterTrace")
         const nextLayer = await createFrameLayerFromRaster(file)
         if (nextLayer) {
           addFrameLayer(nextLayer)
+          setUploadErrorMessage(null)
+        } else {
+          setUploadErrorMessage("이미지 변환 결과를 생성하지 못했습니다.")
         }
       } catch (error) {
+        setUploadErrorMessage("이미지 변환 중 오류가 발생했습니다.")
         console.error("Error converting image to SVG:", error)
+      } finally {
+        setProcessingStage("idle")
+        input.value = ""
       }
-      input.value = ""
       return
     }
 
+    setUploadErrorMessage("지원하지 않는 파일 형식입니다.")
     console.error("Unsupported file type:", file.type || file.name)
+    setProcessingStage("idle")
     input.value = ""
   }
 
   const exportAsGIF = async () => {
+    const canRunGifExport = canRunGifWorker() && canRunFilePipeline()
+
+    if (!canRunGifExport) {
+      setUploadErrorMessage("이 브라우저에서는 GIF 내보내기가 지원되지 않습니다.")
+      return
+    }
+
+    setUploadErrorMessage(null)
     setIsExporting(true)
+    setProcessingStage("gifExport")
 
     try {
       // Dynamic import to avoid SSR issues
@@ -885,7 +997,9 @@ export default function SVGBoilingAnimation() {
       canvas.width = 300
       canvas.height = 300
       const ctx = canvas.getContext("2d")
-      if (!ctx) return
+      if (!ctx) {
+        throw new Error("GIF 렌더링을 위한 Canvas context를 사용할 수 없습니다.")
+      }
 
         // Create only 3 frames for GIF (3fps pattern)
         const frameCount = 3
@@ -962,7 +1076,20 @@ export default function SVGBoilingAnimation() {
         a.download = "boiling-animation.gif"
         a.click()
         URL.revokeObjectURL(url)
+        setUploadErrorMessage(null)
         setIsExporting(false)
+        setProcessingStage("idle")
+      })
+
+      const gifWithLooseEvents = gif as unknown as {
+        on: (event: string, callback: (value: unknown) => void) => void
+      }
+
+      gifWithLooseEvents.on("error", (error: unknown) => {
+        console.error("Error exporting GIF:", error)
+        setIsExporting(false)
+        setProcessingStage("idle")
+        setUploadErrorMessage("GIF를 렌더링하는 중 오류가 발생했습니다.")
       })
 
       gif.on("progress", (p: number) => {
@@ -973,6 +1100,8 @@ export default function SVGBoilingAnimation() {
     } catch (error) {
       console.error("Error exporting GIF:", error)
       setIsExporting(false)
+      setProcessingStage("idle")
+      setUploadErrorMessage("GIF를 내보내는 중 오류가 발생했습니다.")
     }
   }
 
@@ -1785,6 +1914,7 @@ export default function SVGBoilingAnimation() {
 
         <button
           type="button"
+          disabled={isProcessing}
           onClick={() => fileInputRef.current?.click()}
           style={{
             width: '100%',
@@ -1792,11 +1922,46 @@ export default function SVGBoilingAnimation() {
             borderRadius: 10,
             border: '1px solid rgba(0,0,0,0.35)',
             background: '#fff',
-            cursor: 'pointer',
+            cursor: isProcessing ? 'not-allowed' : 'pointer',
+            opacity: isProcessing ? 0.7 : 1,
           }}
         >
           + 레이어 추가
         </button>
+
+        {processingMessage ? (
+          <div
+            style={{
+              marginTop: vhp(6),
+              borderRadius: 8,
+              border: '1px solid rgba(35, 79, 133, 0.35)',
+              background: 'rgba(224, 240, 255, 0.95)',
+              color: '#1e3a5f',
+              padding: `${vwp(6)} ${vwp(8)}`,
+              fontSize: vwp(11),
+              lineHeight: 1.35,
+            }}
+          >
+            {processingMessage}
+          </div>
+        ) : null}
+
+        {uploadErrorMessage ? (
+          <div
+            style={{
+              marginTop: vhp(6),
+              borderRadius: 8,
+              border: '1px solid rgba(122, 31, 31, 0.35)',
+              background: 'rgba(255, 230, 230, 0.95)',
+              color: '#7a1f1f',
+              padding: `${vwp(6)} ${vwp(8)}`,
+              fontSize: vwp(11),
+              lineHeight: 1.35,
+            }}
+          >
+            {uploadErrorMessage}
+          </div>
+        ) : null}
       </div>
 
       {/* 하단 툴바 */}
@@ -1816,10 +1981,12 @@ export default function SVGBoilingAnimation() {
         <button
           type="button"
           className="toolbar-button"
+          disabled={isProcessing || isExporting}
           style={{
             width: vwp(32),
             height: vwp(32),
-            cursor: 'pointer',
+            cursor: isProcessing || isExporting ? 'not-allowed' : 'pointer',
+            opacity: isProcessing || isExporting ? 0.5 : 1,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center'
@@ -1834,18 +2001,18 @@ export default function SVGBoilingAnimation() {
         <button
           type="button"
           className="toolbar-button"
-          disabled={isExporting}
+          disabled={isExporting || isProcessing}
           style={{
             width: vwp(32),
             height: vwp(32),
-            cursor: isExporting ? 'not-allowed' : 'pointer',
+            cursor: isExporting || isProcessing ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: isExporting ? 0.5 : 1,
+            opacity: isExporting || isProcessing ? 0.5 : 1,
           }}
           onClick={() => {
-            if (isExporting) return
+            if (isExporting || isProcessing) return
             exportAsGIF()
           }}
           title="GIF 저장"
