@@ -9,9 +9,27 @@ const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
 const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
 
 const TURBULENCE_SEED = 1
+const INITIAL_SVG_CONTENT = `
+  <path d="M50,50 L150,50 L150,150 L50,150 Z" fill="#3498db" stroke="#2980b9" strokeWidth="2"/>
+  <circle cx="100" cy="100" r="30" fill="#e74c3c" stroke="#c0392b" strokeWidth="2"/>
+  <line x1="60" y1="60" x2="140" y2="140" stroke="#f1c40f" strokeWidth="3"/>
+`
+const FRAME_DEFAULT_DURATION_MS = 1000
+const FRAME_DURATION_MIN_MS = 300
+const FRAME_DURATION_MAX_MS = 5000
+const FRAME_DURATION_STEP_MS = 100
 
 type OverlayScope = "none" | "artboard" | "viewport"
 type OverlaySlot = "A" | "B"
+
+type FrameLayer = {
+  id: string
+  name: string
+  content: string
+  originalWidth: number
+  originalHeight: number
+  durationMs: number
+}
 
 type OverlayImage = {
   src: string
@@ -50,15 +68,30 @@ export default function SVGBoilingAnimation() {
   const CANVAS_VIEWBOX_WIDTH = 315
   const CANVAS_VIEWBOX_HEIGHT = 445
   const CANVAS_UPLOAD_MAX_WIDTH = 310
-  const vwp = (px: number) => `${Math.round(px * viewportScale)}px`
-  const vhp = (px: number) => `${Math.round(px * viewportScale)}px`
+  const KNOB_PANEL_TOP = 559
+  const LAYER_PANEL_TOP = 700
+  const LAYER_PANEL_SPACING = 8
+  const TOOLBAR_TOP = 802
   const TREMOR_MIN = 0.001
-  const TREMOR_MAX = 0.050
+  const TREMOR_MAX = 0.065
+  const TREMOR_DEFAULT = 0.0013
   const INTENSITY_MIN = 1.0
-  const INTENSITY_MAX = 20.0
-  const ANIMATION_SCALE_DEFAULT = 0.2
+  const INTENSITY_MAX = 26.0
+  const INTENSITY_DEFAULT = 1.3
+  const ANIMATION_SCALE_DEFAULT = 0.26
   const ANIMATION_SCALE_MIN = 0.01
   const [viewportScale, setViewportScale] = useState(1)
+  const scaledSize = (px: number) => Math.round(px * viewportScale)
+  const vwp = (px: number) => `${scaledSize(px)}px`
+  const vhp = (px: number) => `${scaledSize(px)}px`
+  const PANEL_WIDTH = vwp(333)
+  const LAYER_PANEL_TOP_PX = scaledSize(LAYER_PANEL_TOP)
+  const TOOLBAR_TOP_PX = scaledSize(TOOLBAR_TOP)
+  const LAYER_PANEL_MAX_HEIGHT_PX = Math.max(scaledSize(90), TOOLBAR_TOP_PX - LAYER_PANEL_TOP_PX - scaledSize(LAYER_PANEL_SPACING))
+  const KNOB_PANEL_TOP_PX_STYLE = vhp(KNOB_PANEL_TOP)
+  const LAYER_PANEL_TOP_PX_STYLE = vhp(LAYER_PANEL_TOP)
+  const TOOLBAR_TOP_PX_STYLE = vhp(TOOLBAR_TOP)
+  const LAYER_PANEL_MAX_HEIGHT_STYLE = `${LAYER_PANEL_MAX_HEIGHT_PX}px`
   const scaledPadding = Math.round(DESIGN_PADDING * viewportScale)
   const scaledDesignWidth = Math.round(DESIGN_WIDTH * viewportScale)
   const scaledDesignHeight = Math.round(DESIGN_HEIGHT * viewportScale)
@@ -78,11 +111,18 @@ export default function SVGBoilingAnimation() {
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const [svgContent, setSvgContent] = useState(`
-    <path d="M50,50 L150,50 L150,150 L50,150 Z" fill="#3498db" stroke="#2980b9" strokeWidth="2"/>
-    <circle cx="100" cy="100" r="30" fill="#e74c3c" stroke="#c0392b" strokeWidth="2"/>
-    <line x1="60" y1="60" x2="140" y2="140" stroke="#f1c40f" strokeWidth="3"/>
-  `)
+  const [frameLayers, setFrameLayers] = useState<FrameLayer[]>([
+    {
+      id: "default-layer",
+      name: "기본 도형",
+      content: INITIAL_SVG_CONTENT,
+      originalWidth: 200,
+      originalHeight: 200,
+      durationMs: FRAME_DEFAULT_DURATION_MS,
+    },
+  ])
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(0)
+  const [svgContent, setSvgContent] = useState(INITIAL_SVG_CONTENT)
   const [originalWidth, setOriginalWidth] = useState(200)
   const [originalHeight, setOriginalHeight] = useState(200)
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
@@ -92,15 +132,22 @@ export default function SVGBoilingAnimation() {
     }),
     [svgContent],
   )
-  const [tremorValue, setTremorValue] = useState(TREMOR_MIN)
-  const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
-  const tremorValueRef = useRef(TREMOR_MIN)
-  const intensityValueRef = useRef(INTENSITY_MIN)
+  const currentFrameLayer = frameLayers[currentFrameIndex] ?? frameLayers[0] ?? null
+  const currentFrameDurationMs = clamp(
+    currentFrameLayer?.durationMs ?? FRAME_DEFAULT_DURATION_MS,
+    FRAME_DURATION_MIN_MS,
+    FRAME_DURATION_MAX_MS,
+  )
+  const [tremorValue, setTremorValue] = useState(TREMOR_DEFAULT)
+  const [intensityValue, setIntensityValue] = useState(INTENSITY_DEFAULT)
+  const tremorValueRef = useRef(TREMOR_DEFAULT)
+  const intensityValueRef = useRef(INTENSITY_DEFAULT)
   const animationScaleRef = useRef(ANIMATION_SCALE_DEFAULT)
 
   const animatedSvgRef = useRef<SVGSVGElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const animationIntervalRef = useRef<number | null>(null)
+  const frameAdvanceTimeoutRef = useRef<number | null>(null)
   const currentIndexRef = useRef(0)
 
   useEffect(() => {
@@ -186,6 +233,160 @@ export default function SVGBoilingAnimation() {
   const openOverlayFilePicker = useCallback((slot: OverlaySlot) => {
     overlayTargetSlotRef.current = slot
     overlayFileInputRef.current?.click()
+  }, [])
+
+  const parseFrameViewport = useCallback((width: string | null, height: string | null, viewBox: string | null) => {
+    const parsedWidth = width ? Number.parseFloat(width) : NaN
+    const parsedHeight = height ? Number.parseFloat(height) : NaN
+    let nextWidth = Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : NaN
+    let nextHeight = Number.isFinite(parsedHeight) && parsedHeight > 0 ? parsedHeight : NaN
+
+    if (!Number.isFinite(nextWidth) || !Number.isFinite(nextHeight)) {
+      const box = viewBox?.trim()
+      const parsedBox = box
+        ? box
+            .split(" ")
+            .map((value) => Number.parseFloat(value))
+            .filter((value) => Number.isFinite(value))
+        : []
+
+      if (parsedBox.length === 4) {
+        nextWidth = parsedBox[2]
+        nextHeight = parsedBox[3]
+      }
+    }
+
+    return {
+      width: Number.isFinite(nextWidth) && nextWidth > 0 ? Math.round(nextWidth) : 200,
+      height: Number.isFinite(nextHeight) && nextHeight > 0 ? Math.round(nextHeight) : 200,
+    }
+  }, [])
+
+  const createFrameLayerFromSvg = useCallback((file: File, content: string): FrameLayer | null => {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(content, "image/svg+xml")
+    const svgElement = doc.querySelector("svg")
+
+    if (!svgElement) return null
+
+    const { width, height } = parseFrameViewport(
+      svgElement.getAttribute("width"),
+      svgElement.getAttribute("height"),
+      svgElement.getAttribute("viewBox"),
+    )
+
+    const innerHtml = svgElement.innerHTML.trim()
+
+    if (!innerHtml) return null
+
+    return {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+      name: file.name,
+      content: innerHtml,
+      originalWidth: width,
+      originalHeight: height,
+      durationMs: FRAME_DEFAULT_DURATION_MS,
+    }
+  }, [parseFrameViewport])
+
+  const createFrameLayerFromRaster = useCallback(async (file: File): Promise<FrameLayer | null> => {
+    const ImageTracer = (await import("imagetracerjs")).default
+    const reader = new FileReader()
+
+    return await new Promise<FrameLayer | null>((resolve) => {
+      reader.onload = (event) => {
+        const fileResult = event.target?.result
+        if (typeof fileResult !== "string") {
+          resolve(null)
+          return
+        }
+
+        const imgElement = document.createElement("img")
+
+        imgElement.onload = () => {
+          let scaledWidth = imgElement.width
+          let scaledHeight = imgElement.height
+
+          if (imgElement.width > CANVAS_UPLOAD_MAX_WIDTH) {
+            const scaleRatio = CANVAS_UPLOAD_MAX_WIDTH / imgElement.width
+            scaledWidth = CANVAS_UPLOAD_MAX_WIDTH
+            scaledHeight = Math.round(imgElement.height * scaleRatio)
+          }
+
+          const canvas = document.createElement("canvas")
+          const ctx = canvas.getContext("2d")
+          if (!ctx) {
+            resolve(null)
+            return
+          }
+
+          canvas.width = scaledWidth
+          canvas.height = scaledHeight
+          ctx.drawImage(imgElement, 0, 0, scaledWidth, scaledHeight)
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+
+          const svgString = ImageTracer.imagedataToSVG(imageData, {
+            ltres: 1,
+            qtres: 1,
+            pathomit: 8,
+            rightangleenhance: true,
+            colorsampling: 1,
+            numberofcolors: 16,
+            mincolorratio: 0.02,
+            colorquantcycles: 3,
+            scale: 1,
+            strokewidth: 1,
+            blurradius: 0,
+            blurdelta: 20,
+          })
+
+          const doc = new DOMParser().parseFromString(svgString, "image/svg+xml")
+          const svgElement = doc.querySelector("svg")
+
+          if (!svgElement) {
+            resolve(null)
+            return
+          }
+
+          const content = svgElement.innerHTML.trim()
+          if (!content) {
+            resolve(null)
+            return
+          }
+
+          resolve({
+            id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+            name: file.name,
+            content,
+            originalWidth: scaledWidth,
+            originalHeight: scaledHeight,
+            durationMs: FRAME_DEFAULT_DURATION_MS,
+          })
+        }
+
+        imgElement.onerror = () => {
+          resolve(null)
+        }
+
+        imgElement.src = fileResult
+      }
+
+      reader.onerror = () => {
+        resolve(null)
+      }
+
+      reader.readAsDataURL(file)
+    })
+  }, [CANVAS_UPLOAD_MAX_WIDTH])
+
+  const addFrameLayer = useCallback((nextLayer: FrameLayer) => {
+    setFrameLayers((prev) => {
+      const next = [...prev, nextLayer]
+      const nextIndex = next.length - 1
+      setCurrentFrameIndex(nextIndex)
+      return next
+    })
   }, [])
 
   const handleOverlayFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -358,131 +559,61 @@ export default function SVGBoilingAnimation() {
   }, [animationSpeed, updateAnimation])
 
   const resetValues = () => {
-    tremorValueRef.current = TREMOR_MIN
-    intensityValueRef.current = INTENSITY_MIN
+    tremorValueRef.current = TREMOR_DEFAULT
+    intensityValueRef.current = INTENSITY_DEFAULT
     animationScaleRef.current = ANIMATION_SCALE_DEFAULT
-    setTremorValue(TREMOR_MIN)
-    setIntensityValue(INTENSITY_MIN)
+    setTremorValue(TREMOR_DEFAULT)
+    setIntensityValue(INTENSITY_DEFAULT)
     setAnimationScale(ANIMATION_SCALE_DEFAULT)
     setAnimationSpeed(100)
-    syncFilterValues(TREMOR_MIN, INTENSITY_MIN)
+    syncFilterValues(TREMOR_DEFAULT, INTENSITY_DEFAULT)
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.target
     resetValues()
-    const file = event.target.files?.[0]
+    const file = input.files?.[0]
     if (!file) return
 
     const fileType = file.type
-    
-    if (fileType === 'image/svg+xml' || file.name.endsWith('.svg')) {
-      // Handle SVG files as before
+
+    if (fileType === "image/svg+xml" || file.name.endsWith(".svg")) {
       const reader = new FileReader()
-      reader.onload = (e) => {
-        const content = e.target?.result as string
-        const parser = new DOMParser()
-        const doc = parser.parseFromString(content, "image/svg+xml")
-        const svgElement = doc.querySelector("svg")
 
-        if (svgElement) {
-          // Extract inner content (excluding svg wrapper)
-          setSvgContent(svgElement.innerHTML)
-          
-          // Extract viewBox, width, and height
-            const viewBox = svgElement.getAttribute("viewBox") || "0 0 200 200"
-          
-          const width = svgElement.getAttribute("width")
-          const height = svgElement.getAttribute("height")
-          
-          // If width and height are not specified, calculate from viewBox
-          let svgWidth = 200
-          let svgHeight = 200
-          
-          if (width && height) {
-            svgWidth = parseInt(width, 10)
-            svgHeight = parseInt(height, 10)
-          } else {
-            const viewBoxValues = viewBox.split(" ").map(Number)
-            if (viewBoxValues.length === 4) {
-              svgWidth = viewBoxValues[2]
-              svgHeight = viewBoxValues[3]
-            }
-          }
-          
-          setOriginalWidth(svgWidth)
-          setOriginalHeight(svgHeight)
-        }
+      reader.onload = (uploadEvent) => {
+        const content = uploadEvent.target?.result
+        if (typeof content !== "string") return
+
+        const nextLayer = createFrameLayerFromSvg(file, content)
+        if (!nextLayer) return
+
+        addFrameLayer(nextLayer)
       }
+
+      reader.onerror = () => {
+        console.error("Error reading SVG file")
+      }
+
       reader.readAsText(file)
-    } else if (fileType === 'image/png' || fileType === 'image/jpeg' || fileType === 'image/jpg') {
-      // Handle PNG/JPG files with imagetracerjs
-      try {
-        // Dynamic import to avoid SSR issues
-        const ImageTracer = (await import('imagetracerjs')).default
-
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          const imgElement = document.createElement("img")
-          imgElement.onload = () => {
-            const maxWidth = CANVAS_UPLOAD_MAX_WIDTH
-             let scaledWidth = imgElement.width
-             let scaledHeight = imgElement.height
-            
-             if (imgElement.width > maxWidth) {
-               const scaleRatio = maxWidth / imgElement.width
-               scaledWidth = maxWidth
-               scaledHeight = imgElement.height * scaleRatio
-             }
-            
-            // Create canvas to get image data
-            const canvas = document.createElement('canvas')
-            const ctx = canvas.getContext('2d')
-            if (!ctx) return
-
-            canvas.width = scaledWidth
-            canvas.height = scaledHeight
-            ctx.drawImage(imgElement, 0, 0, scaledWidth, scaledHeight)
-            
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-            
-            // Convert to SVG using ImageTracer
-            const svgString = ImageTracer.imagedataToSVG(imageData, {
-              ltres: 1,
-              qtres: 1,
-              pathomit: 8,
-              rightangleenhance: true,
-              colorsampling: 1,
-              numberofcolors: 16,
-              mincolorratio: 0.02,
-              colorquantcycles: 3,
-              scale: 1,
-              strokewidth: 1,
-              blurradius: 0,
-              blurdelta: 20
-            })
-
-            // Parse the generated SVG
-            const parser = new DOMParser()
-            const doc = parser.parseFromString(svgString, "image/svg+xml")
-            const svgElement = doc.querySelector("svg")
-
-            if (svgElement) {
-              // Extract inner content (excluding svg wrapper)
-              setSvgContent(svgElement.innerHTML)
-              
-              // Set dimensions based on scaled image
-              setOriginalWidth(scaledWidth)
-              setOriginalHeight(scaledHeight)
-            setScaledViewBox(`0 0 ${scaledWidth} ${scaledHeight}`)
-            }
-          }
-          imgElement.src = e.target?.result as string
-        }
-        reader.readAsDataURL(file)
-      } catch (error) {
-        console.error('Error converting image to SVG:', error)
-      }
+      input.value = ""
+      return
     }
+
+    if (fileType === "image/png" || fileType === "image/jpeg" || fileType === "image/jpg") {
+      try {
+        const nextLayer = await createFrameLayerFromRaster(file)
+        if (nextLayer) {
+          addFrameLayer(nextLayer)
+        }
+      } catch (error) {
+        console.error("Error converting image to SVG:", error)
+      }
+      input.value = ""
+      return
+    }
+
+    console.error("Unsupported file type:", fileType)
+    input.value = ""
   }
 
   const exportAsGIF = async () => {
@@ -674,6 +805,60 @@ export default function SVGBoilingAnimation() {
   }, [originalWidth, originalHeight])
 
   useEffect(() => {
+    if (frameLayers.length === 0) {
+      return
+    }
+
+    const clampedIndex = Math.min(currentFrameIndex, frameLayers.length - 1)
+    if (clampedIndex !== currentFrameIndex) {
+      setCurrentFrameIndex(clampedIndex)
+      return
+    }
+
+    const activeLayer = frameLayers[clampedIndex]
+    if (!activeLayer) return
+
+    if (svgContent !== activeLayer.content) {
+      setSvgContent(activeLayer.content)
+    }
+    if (originalWidth !== activeLayer.originalWidth) {
+      setOriginalWidth(activeLayer.originalWidth)
+    }
+    if (originalHeight !== activeLayer.originalHeight) {
+      setOriginalHeight(activeLayer.originalHeight)
+    }
+  }, [currentFrameIndex, frameLayers, svgContent, originalWidth, originalHeight])
+
+  useEffect(() => {
+    if (frameLayers.length <= 1) {
+      if (frameAdvanceTimeoutRef.current) {
+        clearTimeout(frameAdvanceTimeoutRef.current)
+        frameAdvanceTimeoutRef.current = null
+      }
+      return
+    }
+
+    if (frameAdvanceTimeoutRef.current) {
+      clearTimeout(frameAdvanceTimeoutRef.current)
+    }
+
+    frameAdvanceTimeoutRef.current = window.setTimeout(() => {
+      setCurrentFrameIndex((prev) => {
+        if (frameLayers.length === 0) return 0
+        if (prev >= frameLayers.length - 1) return 0
+        return prev + 1
+      })
+    }, currentFrameDurationMs)
+
+    return () => {
+      if (frameAdvanceTimeoutRef.current) {
+        clearTimeout(frameAdvanceTimeoutRef.current)
+        frameAdvanceTimeoutRef.current = null
+      }
+    }
+  }, [currentFrameDurationMs, frameLayers, currentFrameIndex])
+
+  useEffect(() => {
     applyFilters()
   }, [applyFilters])
 
@@ -699,6 +884,10 @@ export default function SVGBoilingAnimation() {
       if (animationIntervalRef.current) {
         clearInterval(animationIntervalRef.current)
         animationIntervalRef.current = null
+      }
+      if (frameAdvanceTimeoutRef.current) {
+        clearTimeout(frameAdvanceTimeoutRef.current)
+        frameAdvanceTimeoutRef.current = null
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -729,6 +918,44 @@ export default function SVGBoilingAnimation() {
     animationScaleRef.current = nextValue
     setAnimationScale(nextValue)
   }, [])
+
+  const handleFrameSelect = useCallback((frameId: string) => {
+    const nextIndex = frameLayers.findIndex((frame) => frame.id === frameId)
+    if (nextIndex === -1) return
+    setCurrentFrameIndex(nextIndex)
+  }, [frameLayers])
+
+  const handleFrameDurationChange = useCallback((frameId: string, value: string) => {
+    const nextValue = clamp(Number(value), FRAME_DURATION_MIN_MS, FRAME_DURATION_MAX_MS)
+
+    setFrameLayers((prev) =>
+      prev.map((frame) => {
+        if (frame.id !== frameId) return frame
+        return { ...frame, durationMs: nextValue }
+      }),
+    )
+  }, [])
+
+  const handleFrameRemove = useCallback((frameId: string) => {
+    setFrameLayers((prev) => {
+      if (prev.length <= 1) return prev
+
+      const next = prev.filter((frame) => frame.id !== frameId)
+      const removedIndex = prev.findIndex((frame) => frame.id === frameId)
+
+      if (removedIndex === -1) {
+        return prev
+      }
+
+      if (removedIndex < currentFrameIndex) {
+        setCurrentFrameIndex((prevIndex) => Math.max(0, prevIndex - 1))
+      } else if (removedIndex === currentFrameIndex) {
+        setCurrentFrameIndex(Math.min(removedIndex, next.length - 1))
+      }
+
+      return next
+    })
+  }, [currentFrameIndex])
 
   return (
       <div style={{
@@ -993,8 +1220,8 @@ export default function SVGBoilingAnimation() {
       <div style={{
         position: 'absolute',
         left: vwp(30),
-        top: vhp(559),
-        width: vwp(333),
+        top: KNOB_PANEL_TOP_PX_STYLE,
+        width: PANEL_WIDTH,
         display: 'flex',
         flexDirection: 'column',
         gap: vhp(14)
@@ -1005,22 +1232,22 @@ export default function SVGBoilingAnimation() {
           gap: vwp(10),
           color: 'rgb(0, 0, 0)',
         }}>
-          <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>떨림 세기 :</div>
-          <input
-            type="range"
-            min={TREMOR_MIN}
-            max={TREMOR_MAX}
-            step={0.001}
-            value={tremorValue}
-            onChange={handleTremorChange}
-            aria-label="떨림 세기 슬라이더"
+          <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>떨림 강도 :</div>
+            <input
+              type="range"
+              min={TREMOR_MIN}
+              max={TREMOR_MAX}
+              step={0.001}
+              value={tremorValue}
+              onChange={handleTremorChange}
+              aria-label="떨림 강도 슬라이더"
             style={{
               flex: 1,
               accentColor: '#FF6A6A',
             }}
           />
           <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
-            {tremorValue.toFixed(3)}
+            {tremorValue.toFixed(4)}
           </div>
         </div>
 
@@ -1084,11 +1311,141 @@ export default function SVGBoilingAnimation() {
         </div>
       </div>
 
+      <div
+        style={{
+          position: 'absolute',
+          left: vwp(30),
+          top: LAYER_PANEL_TOP_PX_STYLE,
+          width: PANEL_WIDTH,
+          maxHeight: LAYER_PANEL_MAX_HEIGHT_STYLE,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: vhp(10),
+          color: 'rgb(0, 0, 0)',
+        }}
+      >
+        <div style={{
+          fontSize: vwp(18),
+          fontWeight: 700,
+        }}>
+          이미지 레이어
+        </div>
+
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: vhp(8),
+          overflowY: 'auto',
+          paddingRight: 4,
+        }}
+        >
+          {frameLayers.map((frame, index) => {
+            const isActive = index === currentFrameIndex
+
+            return (
+              <button
+                type="button"
+                key={frame.id}
+                onClick={() => handleFrameSelect(frame.id)}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  borderRadius: 10,
+                  border: isActive ? '2px solid #e74c3c' : '1px solid rgba(0,0,0,0.25)',
+                  background: isActive ? 'rgba(255, 255, 255, 0.92)' : '#fff',
+                  padding: `${vwp(6)} ${vwp(8)}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: vhp(6),
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: vwp(8),
+                  fontWeight: 700,
+                }}>
+                  <span style={{ fontSize: vwp(13) }}>
+                    {index + 1}. {frame.name}
+                  </span>
+                  <span style={{ fontSize: vwp(11), opacity: 0.65 }}>
+                    {frame.originalWidth}x{frame.originalHeight}
+                  </span>
+                </div>
+
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: vwp(6),
+                }}>
+                   <span style={{ fontSize: vwp(11), opacity: 0.75 }}>체류시간 (ms)</span>
+                  <input
+                    type="range"
+                    min={FRAME_DURATION_MIN_MS}
+                    max={FRAME_DURATION_MAX_MS}
+                    step={FRAME_DURATION_STEP_MS}
+                    value={frame.durationMs}
+                    onChange={(event) => {
+                      event.stopPropagation()
+                      handleFrameDurationChange(frame.id, event.target.value)
+                    }}
+                    style={{
+                      flex: 1,
+                      accentColor: '#FF6A6A',
+                    }}
+                  />
+                  <span style={{ minWidth: vwp(38), textAlign: 'right', fontSize: vwp(11) }}>
+                    {frame.durationMs}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      handleFrameRemove(frame.id)
+                    }}
+                    disabled={frameLayers.length <= 1}
+                    style={{
+                      width: vwp(36),
+                      height: vwp(22),
+                      borderRadius: 6,
+                      border: '1px solid rgba(0,0,0,0.25)',
+                      background: '#fff',
+                      cursor: frameLayers.length <= 1 ? 'not-allowed' : 'pointer',
+                      opacity: frameLayers.length <= 1 ? 0.5 : 1,
+                    }}
+                  >
+                    X
+                  </button>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            width: '100%',
+            padding: `${vwp(6)} ${vwp(8)}`,
+            borderRadius: 10,
+            border: '1px solid rgba(0,0,0,0.35)',
+            background: '#fff',
+            cursor: 'pointer',
+          }}
+        >
+          + 레이어 추가
+        </button>
+      </div>
+
       {/* 하단 툴바 */}
       <div style={{
         position: 'absolute',
         left: 0,
-        top: vhp(802),
+        top: TOOLBAR_TOP_PX_STYLE,
         width: '100%',
         height: vhp(50),
         backgroundColor: '#303030',

@@ -11,6 +11,7 @@ from playwright.async_api import async_playwright
 
 DEFAULT_URL = "https://boling.vercel.app"
 SLIDER_LABEL = "보일링 애니메이션 폭"
+TURBULENCE_SELECTOR = "svg feTurbulence"
 
 
 def parse_base_frequency(raw_value: str | None) -> float | None:
@@ -29,7 +30,7 @@ async def sample_base_frequencies(
 ) -> List[float]:
     values: List[float] = []
     for _ in range(sample_count):
-        raw = await page.locator("svg feTurbulence").first.get_attribute(
+        raw = await page.locator(TURBULENCE_SELECTOR).first.get_attribute(
             "baseFrequency"
         )
         value = parse_base_frequency(raw)
@@ -57,6 +58,26 @@ def validate_series(
 async def set_slider(page, slider_locator, value: float) -> None:
     value_text = f"{value:.2f}".rstrip("0").rstrip(".")
     await slider_locator.fill(value_text)
+    await slider_locator.evaluate(
+        """(
+        el, nextValue
+        ) => {
+          const next = String(nextValue)
+          el.value = next
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+          el.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+        """,
+        value_text,
+    )
+    for _ in range(20):
+        current_value = await slider_locator.evaluate("el => Number(el.value)")
+        if abs(current_value - value) < 1e-9:
+            break
+        await page.wait_for_timeout(25)
+    else:
+        raise RuntimeError(f"Failed to set {SLIDER_LABEL} slider to {value_text}")
+
     await page.wait_for_timeout(250)
 
 
@@ -69,6 +90,9 @@ async def run_check(url: str, sample_count: int, delay_ms: int) -> None:
 
             slider = page.get_by_role("slider", name=SLIDER_LABEL)
             await slider.wait_for(state="visible", timeout=10_000)
+            await page.locator(TURBULENCE_SELECTOR).first.wait_for(
+                state="attached", timeout=15_000
+            )
 
             await set_slider(page, slider, 0.01)
             min_values = await sample_base_frequencies(
