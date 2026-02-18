@@ -4,6 +4,7 @@ import type React from "react"
 
 import NextImage from "next/image"
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
 const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
@@ -18,9 +19,27 @@ const FRAME_DEFAULT_DURATION_MS = 1000
 const FRAME_DURATION_MIN_MS = 300
 const FRAME_DURATION_MAX_MS = 5000
 const FRAME_DURATION_STEP_MS = 100
+const FRAME_DURATION_MIN_SECONDS = FRAME_DURATION_MIN_MS / 1000
+const FRAME_DURATION_MAX_SECONDS = FRAME_DURATION_MAX_MS / 1000
+const FRAME_DURATION_STEP_SECONDS = FRAME_DURATION_STEP_MS / 1000
+
+const SUPPORTED_RASTER_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".avif",
+]
+const CANVAS_FRAME_MIN_WIDTH = 220
+const CANVAS_FRAME_DESKTOP_MAX_RATIO = 0.6
+const CANVAS_RESIZE_HANDLE_WIDTH = 18
+const CANVAS_HEIGHT = 511
 
 type OverlayScope = "none" | "artboard" | "viewport"
 type OverlaySlot = "A" | "B"
+type MobileSliderKey = "tremor" | "intensity" | "boiling"
 
 type FrameLayer = {
   id: string
@@ -81,20 +100,45 @@ export default function SVGBoilingAnimation() {
   const LAYER_PANEL_TOOLBAR_GAP = 8
   const TOOLBAR_TOP = 802
   const TREMOR_MIN = 0.001
-  const TREMOR_MAX = 0.065
+  const TREMOR_MAX = 0.0845
   const TREMOR_DEFAULT = 0.0013
   const INTENSITY_MIN = 1.0
-  const INTENSITY_MAX = 26.0
+  const INTENSITY_MAX = 33.8
   const INTENSITY_DEFAULT = 1.3
   const ANIMATION_SCALE_DEFAULT = 0.26
   const ANIMATION_SCALE_MIN = 0.01
+  const ANIMATION_SCALE_MAX = 1.3
+  const isMobile = useIsMobile()
   const [viewportScale, setViewportScale] = useState(1)
+  const [canvasFrameWidth, setCanvasFrameWidth] = useState(CANVAS_WIDTH)
+  const [frameRemainingMs, setFrameRemainingMs] = useState(FRAME_DEFAULT_DURATION_MS)
+  const [selectedMobileSlider, setSelectedMobileSlider] = useState<MobileSliderKey>("tremor")
+  const acceptedFrameUploadTypes = useMemo(
+    () => [
+      ".svg",
+      ...SUPPORTED_RASTER_EXTENSIONS,
+    ].join(","),
+    [],
+  )
+  const mobileSliderTabs: Array<{ key: MobileSliderKey; label: string }> = [
+    { key: "tremor", label: "떨림 강도" },
+    { key: "intensity", label: "세기 강도" },
+    { key: "boiling", label: "보일링 폭" },
+  ]
   const scaledSize = (px: number, scale = viewportScale) => Math.round(px * scale)
   const vwp = (px: number) => `${scaledSize(px)}px`
   const vhp = (px: number) => `${scaledSize(px)}px`
   const PANEL_WIDTH = vwp(LAYER_PANEL_WIDTH)
   const KNOB_PANEL_LEFT_PX_STYLE = vwp(KNOB_PANEL_LEFT)
-  const CANVAS_WIDTH_STYLE = vwp(CANVAS_WIDTH)
+  const CANVAS_SCALE = canvasFrameWidth / CANVAS_WIDTH
+  const CANVAS_WIDTH_PX_STYLE = vwp(canvasFrameWidth)
+  const CANVAS_HEIGHT_PX = Math.round(CANVAS_HEIGHT * CANVAS_SCALE)
+  const CANVAS_AREA_WIDTH_PX = Math.round(CANVAS_AREA_WIDTH * CANVAS_SCALE)
+  const CANVAS_AREA_HEIGHT_PX = Math.round(CANVAS_AREA_HEIGHT * CANVAS_SCALE)
+  const CANVAS_AREA_LEFT_PX = Math.round(3 * CANVAS_SCALE)
+  const CANVAS_AREA_TOP_PX = Math.round(10 * CANVAS_SCALE)
+  const CANVAS_BG_RIGHT_OFFSET_PX = Math.round(10 * CANVAS_SCALE)
+  const CANVAS_BG_BOTTOM_OFFSET_PX = Math.round(30 * CANVAS_SCALE)
   const KNOB_PANEL_TOP_PX = scaledSize(KNOB_PANEL_TOP)
   const LAYER_PANEL_TOP_PX = scaledSize(LAYER_PANEL_TOP)
   const LAYER_PANEL_SIDE_LEFT_PX = scaledSize(LAYER_PANEL_SIDE_LEFT)
@@ -162,6 +206,12 @@ export default function SVGBoilingAnimation() {
     FRAME_DURATION_MIN_MS,
     FRAME_DURATION_MAX_MS,
   )
+  const currentFrameDurationSeconds = currentFrameDurationMs / 1000
+  const formatDurationSeconds = (durationMs: number) => (Math.max(0, durationMs) / 1000).toFixed(1)
+  const sliderDurationStep = FRAME_DURATION_STEP_SECONDS
+  const sliderDurationMin = FRAME_DURATION_MIN_SECONDS
+  const sliderDurationMax = FRAME_DURATION_MAX_SECONDS
+  
   const [tremorValue, setTremorValue] = useState(TREMOR_DEFAULT)
   const [intensityValue, setIntensityValue] = useState(INTENSITY_DEFAULT)
   const tremorValueRef = useRef(TREMOR_DEFAULT)
@@ -172,7 +222,13 @@ export default function SVGBoilingAnimation() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const animationIntervalRef = useRef<number | null>(null)
   const frameAdvanceTimeoutRef = useRef<number | null>(null)
+  const frameRemainingIntervalRef = useRef<number | null>(null)
+  const frameDeadlineRef = useRef<number | null>(null)
   const currentIndexRef = useRef(0)
+  const canvasResizeStartXRef = useRef(0)
+  const canvasResizeStartWidthRef = useRef(CANVAS_WIDTH)
+  const hasManualCanvasWidthRef = useRef(false)
+  const canvasFrameDragPointerIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -257,6 +313,23 @@ export default function SVGBoilingAnimation() {
   const openOverlayFilePicker = useCallback((slot: OverlaySlot) => {
     overlayTargetSlotRef.current = slot
     overlayFileInputRef.current?.click()
+  }, [])
+
+  const isSvgFile = useCallback((file: File) => {
+    const normalizedType = (file.type || "").toLowerCase()
+    const normalizedName = file.name.toLowerCase()
+    return normalizedType === "image/svg+xml" || normalizedName.endsWith(".svg")
+  }, [])
+
+  const isRasterFile = useCallback((file: File) => {
+    const normalizedType = (file.type || "").toLowerCase()
+    const normalizedName = file.name.toLowerCase()
+
+    if (normalizedType && normalizedType !== "image/svg+xml") {
+      return normalizedType.startsWith("image/")
+    }
+
+    return SUPPORTED_RASTER_EXTENSIONS.some((extension) => normalizedName.endsWith(extension))
   }, [])
 
   const parseFrameViewport = useCallback((width: string | null, height: string | null, viewBox: string | null) => {
@@ -471,9 +544,49 @@ export default function SVGBoilingAnimation() {
     const hasSideLayout =
       contentLeftOffset + layerPanelSideLeft + layerPanelWidth + layerPanelGap <= window.innerWidth
 
+    const nextCanvasMaxWidth = Math.max(
+      CANVAS_FRAME_MIN_WIDTH,
+      isMobile
+        ? Math.floor(window.innerWidth / nextScale - DESIGN_PADDING * 2)
+        : Math.floor((window.innerWidth * CANVAS_FRAME_DESKTOP_MAX_RATIO) / nextScale),
+    )
+
+    setCanvasFrameWidth((previousWidth) => {
+      if (hasManualCanvasWidthRef.current) {
+        return clamp(previousWidth, CANVAS_FRAME_MIN_WIDTH, nextCanvasMaxWidth)
+      }
+
+      return Math.max(CANVAS_FRAME_MIN_WIDTH, nextCanvasMaxWidth)
+    })
+
     setIsLayerPanelSideLayout(hasSideLayout)
     setViewportScale(nextScale)
-  }, [DESIGN_HEIGHT, DESIGN_PADDING, DESIGN_WIDTH, LAYER_PANEL_SIDE_LEFT, LAYER_PANEL_WIDTH, VIEWPORT_SCALE_MAX])
+  }, [
+    DESIGN_HEIGHT,
+    DESIGN_PADDING,
+    DESIGN_WIDTH,
+    LAYER_PANEL_SIDE_LEFT,
+    LAYER_PANEL_WIDTH,
+    VIEWPORT_SCALE_MAX,
+    isMobile,
+  ])
+
+  const getCanvasMaxUnits = useCallback(
+    (nextScale = viewportScale, mobileMode = isMobile) => {
+    if (mobileMode) {
+      return Math.max(
+        CANVAS_FRAME_MIN_WIDTH,
+        Math.floor(window.innerWidth / nextScale - DESIGN_PADDING * 2),
+      )
+    }
+
+      return Math.max(
+        CANVAS_FRAME_MIN_WIDTH,
+        Math.floor((window.innerWidth * CANVAS_FRAME_DESKTOP_MAX_RATIO) / nextScale),
+      )
+    },
+    [isMobile, viewportScale],
+  )
 
   useEffect(() => {
 
@@ -484,6 +597,54 @@ export default function SVGBoilingAnimation() {
       window.removeEventListener("resize", handleResize)
     }
   }, [handleResize])
+
+  const handleCanvasResizeMove = useCallback(
+    (event: PointerEvent) => {
+      if (canvasFrameDragPointerIdRef.current !== event.pointerId) return
+
+      const deltaX = event.clientX - canvasResizeStartXRef.current
+      const deltaUnits = Math.round(deltaX / viewportScale)
+      const maxUnits = getCanvasMaxUnits(viewportScale, isMobile)
+
+      setCanvasFrameWidth(
+        clamp(
+          canvasResizeStartWidthRef.current + deltaUnits,
+          CANVAS_FRAME_MIN_WIDTH,
+          maxUnits,
+        ),
+      )
+    },
+    [getCanvasMaxUnits, isMobile, viewportScale],
+  )
+
+  const handleCanvasResizeEnd = useCallback(() => {
+    const pointerId = canvasFrameDragPointerIdRef.current
+    if (pointerId === null) return
+
+    window.removeEventListener("pointermove", handleCanvasResizeMove)
+    window.removeEventListener("pointerup", handleCanvasResizeEnd)
+    window.removeEventListener("pointercancel", handleCanvasResizeEnd)
+    canvasFrameDragPointerIdRef.current = null
+  }, [handleCanvasResizeMove])
+
+  const handleCanvasResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (isMobile) return
+
+      event.preventDefault()
+      hasManualCanvasWidthRef.current = true
+      canvasFrameDragPointerIdRef.current = event.pointerId
+      canvasResizeStartXRef.current = event.clientX
+      canvasResizeStartWidthRef.current = canvasFrameWidth
+
+      if (canvasFrameDragPointerIdRef.current !== null) {
+        window.addEventListener("pointermove", handleCanvasResizeMove)
+        window.addEventListener("pointerup", handleCanvasResizeEnd)
+        window.addEventListener("pointercancel", handleCanvasResizeEnd)
+      }
+    },
+    [canvasFrameWidth, handleCanvasResizeEnd, handleCanvasResizeMove, isMobile],
+  )
 
   const applyFilters = useCallback(() => {
     const svg = animatedSvgRef.current
@@ -610,9 +771,7 @@ export default function SVGBoilingAnimation() {
     const file = input.files?.[0]
     if (!file) return
 
-    const fileType = file.type
-
-    if (fileType === "image/svg+xml" || file.name.endsWith(".svg")) {
+    if (isSvgFile(file)) {
       const reader = new FileReader()
 
       reader.onload = (uploadEvent) => {
@@ -634,7 +793,7 @@ export default function SVGBoilingAnimation() {
       return
     }
 
-    if (fileType === "image/png" || fileType === "image/jpeg" || fileType === "image/jpg") {
+    if (isRasterFile(file)) {
       try {
         const nextLayer = await createFrameLayerFromRaster(file)
         if (nextLayer) {
@@ -647,7 +806,7 @@ export default function SVGBoilingAnimation() {
       return
     }
 
-    console.error("Unsupported file type:", fileType)
+    console.error("Unsupported file type:", file.type || file.name)
     input.value = ""
   }
 
@@ -865,17 +1024,30 @@ export default function SVGBoilingAnimation() {
   }, [currentFrameIndex, frameLayers, svgContent, originalWidth, originalHeight])
 
   useEffect(() => {
+    if (frameRemainingIntervalRef.current) {
+      clearInterval(frameRemainingIntervalRef.current)
+      frameRemainingIntervalRef.current = null
+    }
+    if (frameAdvanceTimeoutRef.current) {
+      clearTimeout(frameAdvanceTimeoutRef.current)
+      frameAdvanceTimeoutRef.current = null
+    }
+
     if (frameLayers.length <= 1) {
-      if (frameAdvanceTimeoutRef.current) {
-        clearTimeout(frameAdvanceTimeoutRef.current)
-        frameAdvanceTimeoutRef.current = null
-      }
+      setFrameRemainingMs(currentFrameDurationMs)
+      frameDeadlineRef.current = null
       return
     }
 
-    if (frameAdvanceTimeoutRef.current) {
-      clearTimeout(frameAdvanceTimeoutRef.current)
-    }
+    frameDeadlineRef.current = performance.now() + currentFrameDurationMs
+    setFrameRemainingMs(currentFrameDurationMs)
+
+    frameRemainingIntervalRef.current = window.setInterval(() => {
+      if (frameDeadlineRef.current === null) return
+
+      const nextRemainingMs = frameDeadlineRef.current - performance.now()
+      setFrameRemainingMs(Math.max(0, nextRemainingMs))
+    }, 50)
 
     frameAdvanceTimeoutRef.current = window.setTimeout(() => {
       setCurrentFrameIndex((prev) => {
@@ -886,6 +1058,10 @@ export default function SVGBoilingAnimation() {
     }, currentFrameDurationMs)
 
     return () => {
+      if (frameRemainingIntervalRef.current) {
+        clearInterval(frameRemainingIntervalRef.current)
+        frameRemainingIntervalRef.current = null
+      }
       if (frameAdvanceTimeoutRef.current) {
         clearTimeout(frameAdvanceTimeoutRef.current)
         frameAdvanceTimeoutRef.current = null
@@ -949,10 +1125,55 @@ export default function SVGBoilingAnimation() {
   }, [syncFilterValues])
 
   const handleAnimationScaleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextValue = clamp(Number(event.target.value), ANIMATION_SCALE_MIN, 1)
+    const nextValue = clamp(Number(event.target.value), ANIMATION_SCALE_MIN, ANIMATION_SCALE_MAX)
     animationScaleRef.current = nextValue
     setAnimationScale(nextValue)
   }, [])
+
+  const activeMobileSlider = useMemo(
+    () =>
+      selectedMobileSlider === "tremor"
+        ? {
+            label: "떨림 강도",
+            value: tremorValue,
+            min: TREMOR_MIN,
+            max: TREMOR_MAX,
+            step: 0.001,
+            displayValue: tremorValue.toFixed(4),
+            onChange: handleTremorChange,
+            ariaLabel: "떨림 강도 슬라이더",
+          }
+        : selectedMobileSlider === "intensity"
+          ? {
+              label: "세기 강도",
+              value: intensityValue,
+              min: INTENSITY_MIN,
+              max: INTENSITY_MAX,
+              step: 0.1,
+              displayValue: intensityValue.toFixed(1),
+              onChange: handleIntensityChange,
+              ariaLabel: "세기 강도 슬라이더",
+            }
+          : {
+              label: "보일링 폭",
+              value: animationScale,
+              min: ANIMATION_SCALE_MIN,
+              max: ANIMATION_SCALE_MAX,
+              step: 0.01,
+              displayValue: animationScale.toFixed(2),
+              onChange: handleAnimationScaleChange,
+              ariaLabel: "보일링 애니메이션 폭 슬라이더",
+            },
+    [
+      animationScale,
+      selectedMobileSlider,
+      handleAnimationScaleChange,
+      handleIntensityChange,
+      handleTremorChange,
+      intensityValue,
+      tremorValue,
+    ],
+  )
 
   const handleFrameSelect = useCallback((frameId: string) => {
     const nextIndex = frameLayers.findIndex((frame) => frame.id === frameId)
@@ -961,7 +1182,11 @@ export default function SVGBoilingAnimation() {
   }, [frameLayers])
 
   const handleFrameDurationChange = useCallback((frameId: string, value: string) => {
-    const nextValue = clamp(Number(value), FRAME_DURATION_MIN_MS, FRAME_DURATION_MAX_MS)
+    const nextValue = clamp(
+      Math.round(Number(value) * 1000),
+      FRAME_DURATION_MIN_MS,
+      FRAME_DURATION_MAX_MS,
+    )
 
     setFrameLayers((prev) =>
       prev.map((frame) => {
@@ -1220,23 +1445,51 @@ export default function SVGBoilingAnimation() {
         position: 'absolute',
         left: `${scaledSize(CANVAS_LEFT)}px`,
         top: vhp(65),
-        width: CANVAS_WIDTH_STYLE,
-        height: vhp(511)
+        width: CANVAS_WIDTH_PX_STYLE,
+        height: `${CANVAS_HEIGHT_PX}px`,
       }}>
         <NextImage src="/svg/Rectangle-267.svg" alt="Canvas background" width={378} height={519} style={{
           width: '100%',
           height: '100%',
           position: 'absolute',
           zIndex: 0,
-          right: vwp(10),
-          bottom: vhp(30)
+          right: `${CANVAS_BG_RIGHT_OFFSET_PX}px`,
+          bottom: `${CANVAS_BG_BOTTOM_OFFSET_PX}px`,
         }} />
+        {isMobile ? null : (
+          <div
+            onPointerDown={handleCanvasResizeStart}
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              width: `${vwp(CANVAS_RESIZE_HANDLE_WIDTH)}`,
+              height: '100%',
+              cursor: 'ew-resize',
+              zIndex: 2,
+              touchAction: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: '3px',
+                height: '40px',
+                borderRadius: '999px',
+                background: 'rgba(0, 0, 0, 0.55)',
+                opacity: 0.8,
+              }}
+            />
+          </div>
+        )}
         <div style={{
           position: 'absolute',
-          left: vwp(3),
-          top: vhp(10),
-          width: vwp(CANVAS_AREA_WIDTH),
-          height: vhp(CANVAS_AREA_HEIGHT),
+          left: `${CANVAS_AREA_LEFT_PX}px`,
+          top: `${CANVAS_AREA_TOP_PX}px`,
+          width: `${CANVAS_AREA_WIDTH_PX}px`,
+          height: `${CANVAS_AREA_HEIGHT_PX}px`,
           zIndex: 1
         }}>
           <svg
@@ -1259,91 +1512,154 @@ export default function SVGBoilingAnimation() {
         width: PANEL_WIDTH,
         display: 'flex',
         flexDirection: 'column',
-        gap: vhp(14)
+        gap: vhp(14),
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: vwp(10),
-          color: 'rgb(0, 0, 0)',
-        }}>
-          <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>떨림 강도 :</div>
-            <input
-              type="range"
-              min={TREMOR_MIN}
-              max={TREMOR_MAX}
-              step={0.001}
-              value={tremorValue}
-              onChange={handleTremorChange}
-              aria-label="떨림 강도 슬라이더"
-            style={{
-              flex: 1,
-              accentColor: '#FF6A6A',
-            }}
-          />
-          <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
-            {tremorValue.toFixed(4)}
-          </div>
-        </div>
+        {isMobile ? (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                gap: vwp(6),
+              }}
+            >
+              {mobileSliderTabs.map((tab) => {
+                const isSelected = tab.key === selectedMobileSlider
+                return (
+                  <button
+                    type="button"
+                    key={tab.key}
+                    onClick={() => setSelectedMobileSlider(tab.key)}
+                    style={{
+                      flex: 1,
+                      borderRadius: 10,
+                      border: isSelected ? '2px solid #E74C3C' : '1px solid rgba(0, 0, 0, 0.35)',
+                      background: isSelected ? 'rgba(231, 76, 60, 0.2)' : '#fff',
+                      color: '#222',
+                      padding: `${vwp(6)} ${vwp(10)}`,
+                      fontSize: vwp(12),
+                      fontWeight: isSelected ? 700 : 400,
+                      lineHeight: 1,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                )
+              })}
+            </div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: vwp(10),
+              color: 'rgb(0, 0, 0)',
+            }}>
+              <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>{activeMobileSlider.label} :</div>
+              <input
+                type="range"
+                min={activeMobileSlider.min}
+                max={activeMobileSlider.max}
+                step={activeMobileSlider.step}
+                value={activeMobileSlider.value}
+                onChange={activeMobileSlider.onChange}
+                aria-label={activeMobileSlider.ariaLabel}
+                style={{
+                  flex: 1,
+                  accentColor: '#FF6A6A',
+                }}
+              />
+              <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
+                {activeMobileSlider.displayValue}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: vwp(10),
+              color: 'rgb(0, 0, 0)',
+            }}>
+              <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>떨림 강도 :</div>
+              <input
+                type="range"
+                min={TREMOR_MIN}
+                max={TREMOR_MAX}
+                step={0.001}
+                value={tremorValue}
+                onChange={handleTremorChange}
+                aria-label="떨림 강도 슬라이더"
+                style={{
+                  flex: 1,
+                  accentColor: '#FF6A6A',
+                }}
+              />
+              <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
+                {tremorValue.toFixed(4)}
+              </div>
+            </div>
 
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: vwp(10),
-          color: 'rgb(0, 0, 0)',
-        }}>
-          <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>세기 강도 :</div>
-          <input
-            type="range"
-            min={INTENSITY_MIN}
-            max={INTENSITY_MAX}
-            step={0.1}
-            value={intensityValue}
-            onChange={handleIntensityChange}
-            aria-label="세기 강도 슬라이더"
-            style={{
-              flex: 1,
-              accentColor: '#FF6A6A',
-            }}
-          />
-          <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
-            {intensityValue.toFixed(1)}
-          </div>
-        </div>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: vwp(10),
-          color: 'rgb(0, 0, 0)',
-        }}>
-          <div style={{
-            fontSize: vwp(18),
-            whiteSpace: 'nowrap',
-          }}>
-            보일링 폭 :
-          </div>
-          <input
-            type="range"
-            min={ANIMATION_SCALE_MIN}
-            max={1}
-            step={0.01}
-            value={animationScale}
-            onChange={handleAnimationScaleChange}
-            aria-label="보일링 애니메이션 폭"
-            style={{
-              flex: 1,
-              accentColor: '#FF6A6A',
-            }}
-          />
-          <div style={{
-            fontSize: vwp(18),
-            width: vwp(45),
-            textAlign: 'right',
-            fontWeight: 'bold',
-          }}>
-            {animationScale.toFixed(2)}
-          </div>
-        </div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: vwp(10),
+              color: 'rgb(0, 0, 0)',
+            }}>
+              <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>세기 강도 :</div>
+              <input
+                type="range"
+                min={INTENSITY_MIN}
+                max={INTENSITY_MAX}
+                step={0.1}
+                value={intensityValue}
+                onChange={handleIntensityChange}
+                aria-label="세기 강도 슬라이더"
+                style={{
+                  flex: 1,
+                  accentColor: '#FF6A6A',
+                }}
+              />
+              <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
+                {intensityValue.toFixed(1)}
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: vwp(10),
+              color: 'rgb(0, 0, 0)',
+            }}>
+              <div style={{
+                fontSize: vwp(18),
+                whiteSpace: 'nowrap',
+              }}>
+                보일링 폭 :
+              </div>
+              <input
+                type="range"
+                min={ANIMATION_SCALE_MIN}
+                max={ANIMATION_SCALE_MAX}
+                step={0.01}
+                value={animationScale}
+                onChange={handleAnimationScaleChange}
+                aria-label="보일링 애니메이션 폭"
+                style={{
+                  flex: 1,
+                  accentColor: '#FF6A6A',
+                }}
+              />
+              <div style={{
+                fontSize: vwp(18),
+                width: vwp(45),
+                textAlign: 'right',
+                fontWeight: 'bold',
+              }}>
+                {animationScale.toFixed(2)}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div
@@ -1415,13 +1731,15 @@ export default function SVGBoilingAnimation() {
                   alignItems: 'center',
                   gap: vwp(6),
                 }}>
-                   <span style={{ fontSize: vwp(11), opacity: 0.75 }}>체류시간 (ms)</span>
+                  <span style={{ fontSize: vwp(11), opacity: 0.75 }}>
+                    체류시간 (초)
+                  </span>
                   <input
                     type="range"
-                    min={FRAME_DURATION_MIN_MS}
-                    max={FRAME_DURATION_MAX_MS}
-                    step={FRAME_DURATION_STEP_MS}
-                    value={frame.durationMs}
+                    min={sliderDurationMin}
+                    max={sliderDurationMax}
+                    step={sliderDurationStep}
+                    value={frame.durationMs / 1000}
                     onChange={(event) => {
                       event.stopPropagation()
                       handleFrameDurationChange(frame.id, event.target.value)
@@ -1431,9 +1749,14 @@ export default function SVGBoilingAnimation() {
                       accentColor: '#FF6A6A',
                     }}
                   />
-                  <span style={{ minWidth: vwp(38), textAlign: 'right', fontSize: vwp(11) }}>
-                    {frame.durationMs}
+                  <span style={{ minWidth: vwp(44), textAlign: 'right', fontSize: vwp(11) }}>
+                    {formatDurationSeconds(frame.durationMs)}s
                   </span>
+                  {isActive ? (
+                    <span style={{ minWidth: vwp(56), textAlign: 'right', fontSize: vwp(11), opacity: 0.8 }}>
+                      {`${formatDurationSeconds(frameRemainingMs)}초`}
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={(event) => {
@@ -1534,7 +1857,7 @@ export default function SVGBoilingAnimation() {
       </div>
 
       {/* 숨겨진 파일 입력 */}
-      <input ref={fileInputRef} type="file" accept=".svg,.png,.jpg,.jpeg" onChange={handleFileUpload} style={{ display: 'none' }} />
+      <input ref={fileInputRef} type="file" accept={acceptedFrameUploadTypes} onChange={handleFileUpload} style={{ display: 'none' }} />
     </div>
     </div>
   )
