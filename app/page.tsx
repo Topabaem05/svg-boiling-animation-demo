@@ -91,13 +91,13 @@ export default function SVGBoilingAnimation() {
     744 / (DESIGN_WIDTH + DESIGN_PADDING * 2),
     1133 / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
   )
-  const CANVAS_AREA_WIDTH = 315
-  const CANVAS_AREA_HEIGHT = 445
-  const CANVAS_VIEWBOX_WIDTH = 315
-  const CANVAS_VIEWBOX_HEIGHT = 445
-  const CANVAS_UPLOAD_MAX_WIDTH = 310
-  const CANVAS_LEFT = 30
-  const CANVAS_WIDTH = 350
+  const CANVAS_AREA_WIDTH = 357
+  const CANVAS_AREA_HEIGHT = 503
+  const CANVAS_VIEWBOX_WIDTH = 357
+  const CANVAS_VIEWBOX_HEIGHT = 503
+  const CANVAS_UPLOAD_MAX_WIDTH = 350
+  const CANVAS_LEFT = 14
+  const CANVAS_WIDTH = 365
   const KNOB_PANEL_TOP = 559
   const KNOB_PANEL_LEFT = 30
   const KNOB_PANEL_WIDTH = 333
@@ -157,10 +157,10 @@ export default function SVGBoilingAnimation() {
   const CANVAS_HEIGHT_PX = scaledSize(Math.round(CANVAS_HEIGHT * CANVAS_SCALE))
   const CANVAS_AREA_WIDTH_PX = scaledSize(Math.round(CANVAS_AREA_WIDTH * CANVAS_SCALE))
   const CANVAS_AREA_HEIGHT_PX = scaledSize(Math.round(CANVAS_AREA_HEIGHT * CANVAS_SCALE))
-  const CANVAS_AREA_LEFT_PX = scaledSize(Math.round(3 * CANVAS_SCALE))
-  const CANVAS_AREA_TOP_PX = scaledSize(Math.round(10 * CANVAS_SCALE))
-  const CANVAS_BG_RIGHT_OFFSET_PX = scaledSize(Math.round(10 * CANVAS_SCALE))
-  const CANVAS_BG_BOTTOM_OFFSET_PX = scaledSize(Math.round(30 * CANVAS_SCALE))
+  const CANVAS_AREA_LEFT_PX = scaledSize(Math.round(4 * CANVAS_SCALE))
+  const CANVAS_AREA_TOP_PX = scaledSize(Math.round(4 * CANVAS_SCALE))
+  const CANVAS_BG_RIGHT_OFFSET_PX = 0
+  const CANVAS_BG_BOTTOM_OFFSET_PX = 0
   const KNOB_PANEL_TOP_PX = scaledSize(KNOB_PANEL_TOP)
   const LAYER_PANEL_TOP_PX = scaledSize(LAYER_PANEL_TOP)
   const LAYER_PANEL_SIDE_LEFT_PX = scaledSize(LAYER_PANEL_SIDE_LEFT)
@@ -1573,7 +1573,7 @@ export default function SVGBoilingAnimation() {
       <div style={{
         position: 'absolute',
         left: `${scaledSize(CANVAS_LEFT)}px`,
-        top: vhp(65),
+        top: vhp(20),
         width: CANVAS_WIDTH_PX_STYLE,
         height: `${CANVAS_HEIGHT_PX}px`,
       }}>
