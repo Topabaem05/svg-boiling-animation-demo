@@ -3,54 +3,15 @@
 import type React from "react"
 
 import NextImage from "next/image"
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useState, useRef, useEffect, useCallback } from "react"
 
 const OFFSET_ARRAY = [-0.02, 0.01, -0.01, 0.02] as const
 const clamp = (val: number, min: number, max: number) => Math.min(max, Math.max(min, val))
 
 const TURBULENCE_SEED = 1
-const INITIAL_SVG_CONTENT = `
-  <path d="M50,50 L150,50 L150,150 L50,150 Z" fill="#3498db" stroke="#2980b9" strokeWidth="2"/>
-  <circle cx="100" cy="100" r="30" fill="#e74c3c" stroke="#c0392b" strokeWidth="2"/>
-  <line x1="60" y1="60" x2="140" y2="140" stroke="#f1c40f" strokeWidth="3"/>
-`
-const FRAME_DEFAULT_DURATION_MS = 1000
-const FRAME_DURATION_MIN_MS = 300
-const FRAME_DURATION_MAX_MS = 5000
-const FRAME_DURATION_STEP_MS = 100
-const FRAME_DURATION_MIN_SECONDS = FRAME_DURATION_MIN_MS / 1000
-const FRAME_DURATION_MAX_SECONDS = FRAME_DURATION_MAX_MS / 1000
-const FRAME_DURATION_STEP_SECONDS = FRAME_DURATION_STEP_MS / 1000
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
-const MAX_UPLOAD_MB = MAX_UPLOAD_BYTES / (1024 * 1024)
-
-const SUPPORTED_RASTER_EXTENSIONS = [
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".bmp",
-  ".avif",
-]
-const CANVAS_FRAME_MIN_WIDTH = 220
-const CANVAS_FRAME_DESKTOP_MAX_RATIO = 0.6
-const CANVAS_RESIZE_HANDLE_WIDTH = 18
-const CANVAS_HEIGHT = 511
 
 type OverlayScope = "none" | "artboard" | "viewport"
 type OverlaySlot = "A" | "B"
-type MobileSliderKey = "tremor" | "intensity" | "boiling"
-
-type FrameLayer = {
-  id: string
-  name: string
-  content: string
-  originalWidth: number
-  originalHeight: number
-  durationMs: number
-}
 
 type OverlayImage = {
   src: string
@@ -70,13 +31,6 @@ type OverlayPersistedState = {
   images: Partial<Record<OverlaySlot, OverlayImage>>
 }
 
-type ProcessingStage =
-  | "idle"
-  | "frameUpload"
-  | "rasterTrace"
-  | "overlayUpload"
-  | "gifExport"
-
 const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   scope: "none",
   slot: "A",
@@ -91,97 +45,24 @@ export default function SVGBoilingAnimation() {
     744 / (DESIGN_WIDTH + DESIGN_PADDING * 2),
     1133 / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
   )
-  const CANVAS_AREA_WIDTH = 357
-  const CANVAS_AREA_HEIGHT = 503
-  const CANVAS_VIEWBOX_WIDTH = 357
-  const CANVAS_VIEWBOX_HEIGHT = 503
-  const CANVAS_UPLOAD_MAX_WIDTH = 350
-  const CANVAS_LEFT = 14
-  const CANVAS_WIDTH = 365
-  const KNOB_PANEL_TOP = 559
-  const KNOB_PANEL_LEFT = 30
-  const KNOB_PANEL_WIDTH = 333
-  const LAYER_PANEL_WIDTH = 333
-  const LAYER_PANEL_SIDE_GAP = 10
-  const LAYER_PANEL_SIDE_LEFT = KNOB_PANEL_LEFT + KNOB_PANEL_WIDTH + LAYER_PANEL_SIDE_GAP
-  const LAYER_PANEL_TOP = 700
-  const LAYER_PANEL_SPACING = 8
-  const LAYER_PANEL_TOOLBAR_GAP = 8
-  const TOOLBAR_TOP = 802
+  const CANVAS_AREA_WIDTH = 315
+  const CANVAS_AREA_HEIGHT = 445
+  const CANVAS_VIEWBOX_WIDTH = 315
+  const CANVAS_VIEWBOX_HEIGHT = 445
+  const CANVAS_UPLOAD_MAX_WIDTH = 310
+  const vwp = (px: number) => `${Math.round(px * viewportScale)}px`
+  const vhp = (px: number) => `${Math.round(px * viewportScale)}px`
+  const ANGLE_MAX = 360
   const TREMOR_MIN = 0.001
-  const TREMOR_MAX = 0.0845
-  const TREMOR_DEFAULT = 0.0013
+  const TREMOR_MAX = 0.050
   const INTENSITY_MIN = 1.0
-  const INTENSITY_MAX = 33.8
-  const INTENSITY_DEFAULT = 1.3
-  const ANIMATION_SCALE_DEFAULT = 0.26
-  const ANIMATION_SCALE_MIN = 0.01
-  const ANIMATION_SCALE_MAX = 1.3
-  const isMobile = useIsMobile()
+  const INTENSITY_MAX = 20.0
+  const valueToAngle = useCallback((val: number, min: number, max: number) => {
+    const frac = clamp((val - min) / (max - min), 0, 1)
+    if (frac >= 1) return ANGLE_MAX - 0.001
+    return frac * ANGLE_MAX
+  }, [ANGLE_MAX])
   const [viewportScale, setViewportScale] = useState(1)
-  const [canvasFrameWidth, setCanvasFrameWidth] = useState(CANVAS_WIDTH)
-  const [frameRemainingMs, setFrameRemainingMs] = useState(FRAME_DEFAULT_DURATION_MS)
-  const [selectedMobileSlider, setSelectedMobileSlider] = useState<MobileSliderKey>("tremor")
-  const acceptedFrameUploadTypes = useMemo(
-    () => [
-      ".svg",
-      ...SUPPORTED_RASTER_EXTENSIONS,
-    ].join(","),
-    [],
-  )
-  const canRunFilePipeline = useCallback(() => {
-    if (typeof window === "undefined") return false
-    if (!window.File || !window.FileReader || !window.URL || !window.Blob || !window.Image) {
-      return false
-    }
-
-    return true
-  }, [])
-
-  const canRunGifWorker = useCallback(() => {
-    if (typeof window === "undefined") return false
-    return !!window.Worker
-  }, [])
-  const mobileSliderTabs: Array<{ key: MobileSliderKey; label: string }> = [
-    { key: "tremor", label: "떨림 강도" },
-    { key: "intensity", label: "세기 강도" },
-    { key: "boiling", label: "보일링 폭" },
-  ]
-  const scaledSize = (px: number, scale = viewportScale) => Math.round(px * scale)
-  const vwp = (px: number) => `${scaledSize(px)}px`
-  const vhp = (px: number) => `${scaledSize(px)}px`
-  const PANEL_WIDTH = vwp(LAYER_PANEL_WIDTH)
-  const KNOB_PANEL_LEFT_PX_STYLE = vwp(KNOB_PANEL_LEFT)
-  const CANVAS_SCALE = canvasFrameWidth / CANVAS_WIDTH
-  const CANVAS_WIDTH_PX_STYLE = vwp(canvasFrameWidth)
-  const CANVAS_HEIGHT_PX = scaledSize(Math.round(CANVAS_HEIGHT * CANVAS_SCALE))
-  const CANVAS_AREA_WIDTH_PX = scaledSize(Math.round(CANVAS_AREA_WIDTH * CANVAS_SCALE))
-  const CANVAS_AREA_HEIGHT_PX = scaledSize(Math.round(CANVAS_AREA_HEIGHT * CANVAS_SCALE))
-  const CANVAS_AREA_LEFT_PX = scaledSize(Math.round(4 * CANVAS_SCALE))
-  const CANVAS_AREA_TOP_PX = scaledSize(Math.round(4 * CANVAS_SCALE))
-  const CANVAS_BG_RIGHT_OFFSET_PX = 0
-  const CANVAS_BG_BOTTOM_OFFSET_PX = 0
-  const KNOB_PANEL_TOP_PX = scaledSize(KNOB_PANEL_TOP)
-  const LAYER_PANEL_TOP_PX = scaledSize(LAYER_PANEL_TOP)
-  const LAYER_PANEL_SIDE_LEFT_PX = scaledSize(LAYER_PANEL_SIDE_LEFT)
-  const LAYER_PANEL_SIDE_GAP_PX = scaledSize(LAYER_PANEL_TOOLBAR_GAP)
-  const TOOLBAR_TOP_PX = scaledSize(TOOLBAR_TOP)
-  const KNOB_PANEL_TOP_PX_STYLE = `${KNOB_PANEL_TOP_PX}px`
-  const [isLayerPanelSideLayout, setIsLayerPanelSideLayout] = useState(false)
-  const LAYER_PANEL_CURRENT_LEFT_PX = isLayerPanelSideLayout
-    ? LAYER_PANEL_SIDE_LEFT_PX
-    : scaledSize(KNOB_PANEL_LEFT)
-  const LAYER_PANEL_CURRENT_TOP_PX = isLayerPanelSideLayout
-    ? KNOB_PANEL_TOP_PX
-    : LAYER_PANEL_TOP_PX
-  const LAYER_PANEL_TOP_PX_STYLE = `${LAYER_PANEL_CURRENT_TOP_PX}px`
-  const LAYER_PANEL_LEFT_PX_STYLE = `${LAYER_PANEL_CURRENT_LEFT_PX}px`
-  const LAYER_PANEL_MAX_HEIGHT_PX = Math.max(
-    scaledSize(90),
-    TOOLBAR_TOP_PX - LAYER_PANEL_CURRENT_TOP_PX - LAYER_PANEL_SIDE_GAP_PX,
-  )
-  const TOOLBAR_TOP_PX_STYLE = vhp(TOOLBAR_TOP)
-  const LAYER_PANEL_MAX_HEIGHT_STYLE = `${LAYER_PANEL_MAX_HEIGHT_PX}px`
   const scaledPadding = Math.round(DESIGN_PADDING * viewportScale)
   const scaledDesignWidth = Math.round(DESIGN_WIDTH * viewportScale)
   const scaledDesignHeight = Math.round(DESIGN_HEIGHT * viewportScale)
@@ -197,77 +78,37 @@ export default function SVGBoilingAnimation() {
   }
   const overlayFileInputRef = useRef<HTMLInputElement>(null)
   const overlayTargetSlotRef = useRef<OverlaySlot>(DEFAULT_OVERLAY_SETTINGS.slot)
-  const [animationScale, setAnimationScale] = useState(ANIMATION_SCALE_DEFAULT)
+  const [animationScale, setAnimationScale] = useState(0.2)
   const [animationSpeed, setAnimationSpeed] = useState(100) // milliseconds
   const [isAnimating, setIsAnimating] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const [frameLayers, setFrameLayers] = useState<FrameLayer[]>([
-    {
-      id: "default-layer",
-      name: "기본 도형",
-      content: INITIAL_SVG_CONTENT,
-      originalWidth: 200,
-      originalHeight: 200,
-      durationMs: FRAME_DEFAULT_DURATION_MS,
-    },
-  ])
-  const [currentFrameIndex, setCurrentFrameIndex] = useState(0)
-  const [svgContent, setSvgContent] = useState(INITIAL_SVG_CONTENT)
+  const [svgContent, setSvgContent] = useState(`
+    <path d="M50,50 L150,50 L150,150 L50,150 Z" fill="#3498db" stroke="#2980b9" strokeWidth="2"/>
+    <circle cx="100" cy="100" r="30" fill="#e74c3c" stroke="#c0392b" strokeWidth="2"/>
+    <line x1="60" y1="60" x2="140" y2="140" stroke="#f1c40f" strokeWidth="3"/>
+  `)
   const [originalWidth, setOriginalWidth] = useState(200)
   const [originalHeight, setOriginalHeight] = useState(200)
   const [scaledViewBox, setScaledViewBox] = useState("0 0 200 200")
-  const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null)
-  const [processingStage, setProcessingStage] = useState<ProcessingStage>("idle")
-  const isProcessing = processingStage !== "idle"
-  const processingMessage = useMemo(() => {
-    switch (processingStage) {
-      case "frameUpload":
-        return "프레임 파일을 기기에서 분석 중입니다."
-      case "rasterTrace":
-        return "레스터 이미지를 SVG로 변환하는 중입니다."
-      case "overlayUpload":
-        return "오버레이 이미지를 기기에서 처리 중입니다."
-      case "gifExport":
-        return "GIF 렌더링을 기기에서 생성 중입니다."
-      default:
-        return null
-    }
-  }, [processingStage])
-  const svgMarkup = useMemo(
-    () => ({
-      __html: svgContent,
-    }),
-    [svgContent],
-  )
-  const currentFrameLayer = frameLayers[currentFrameIndex] ?? frameLayers[0] ?? null
-  const currentFrameDurationMs = clamp(
-    currentFrameLayer?.durationMs ?? FRAME_DEFAULT_DURATION_MS,
-    FRAME_DURATION_MIN_MS,
-    FRAME_DURATION_MAX_MS,
-  )
-  const currentFrameDurationSeconds = currentFrameDurationMs / 1000
-  const formatDurationSeconds = (durationMs: number) => (Math.max(0, durationMs) / 1000).toFixed(1)
-  const sliderDurationStep = FRAME_DURATION_STEP_SECONDS
-  const sliderDurationMin = FRAME_DURATION_MIN_SECONDS
-  const sliderDurationMax = FRAME_DURATION_MAX_SECONDS
-  
-  const [tremorValue, setTremorValue] = useState(TREMOR_DEFAULT)
-  const [intensityValue, setIntensityValue] = useState(INTENSITY_DEFAULT)
-  const tremorValueRef = useRef(TREMOR_DEFAULT)
-  const intensityValueRef = useRef(INTENSITY_DEFAULT)
-  const animationScaleRef = useRef(ANIMATION_SCALE_DEFAULT)
+  const [tremorValue, setTremorValue] = useState(TREMOR_MIN)
+  const [intensityValue, setIntensityValue] = useState(INTENSITY_MIN)
+  const [currentRotation, setCurrentRotation] = useState(0)
+  const [currentRotation2, setCurrentRotation2] = useState(0)
+
+  const isDraggingRef = useRef(false)
+  const isDragging2Ref = useRef(false)
+  const startAngleRef = useRef(0)
+  const startAngle2Ref = useRef(0)
+
+  const tremorValueRef = useRef(TREMOR_MIN)
+  const intensityValueRef = useRef(INTENSITY_MIN)
+  const currentRotationRef = useRef(0)
+  const currentRotation2Ref = useRef(0)
 
   const animatedSvgRef = useRef<SVGSVGElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const animationIntervalRef = useRef<number | null>(null)
-  const frameAdvanceTimeoutRef = useRef<number | null>(null)
-  const frameRemainingIntervalRef = useRef<number | null>(null)
-  const frameDeadlineRef = useRef<number | null>(null)
   const currentIndexRef = useRef(0)
-  const canvasResizeStartXRef = useRef(0)
-  const canvasResizeStartWidthRef = useRef(CANVAS_WIDTH)
-  const hasManualCanvasWidthRef = useRef(false)
-  const canvasFrameDragPointerIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -354,207 +195,17 @@ export default function SVGBoilingAnimation() {
     overlayFileInputRef.current?.click()
   }, [])
 
-  const isSvgFile = useCallback((file: File) => {
-    const normalizedType = (file.type || "").toLowerCase()
-    const normalizedName = file.name.toLowerCase()
-    return normalizedType === "image/svg+xml" || normalizedName.endsWith(".svg")
-  }, [])
-
-  const isRasterFile = useCallback((file: File) => {
-    const normalizedType = (file.type || "").toLowerCase()
-    const normalizedName = file.name.toLowerCase()
-
-    if (normalizedType && normalizedType !== "image/svg+xml") {
-      return normalizedType.startsWith("image/")
-    }
-
-    return SUPPORTED_RASTER_EXTENSIONS.some((extension) => normalizedName.endsWith(extension))
-  }, [])
-
-  const parseFrameViewport = useCallback((width: string | null, height: string | null, viewBox: string | null) => {
-    const parsedWidth = width ? Number.parseFloat(width) : NaN
-    const parsedHeight = height ? Number.parseFloat(height) : NaN
-    let nextWidth = Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : NaN
-    let nextHeight = Number.isFinite(parsedHeight) && parsedHeight > 0 ? parsedHeight : NaN
-
-    if (!Number.isFinite(nextWidth) || !Number.isFinite(nextHeight)) {
-      const box = viewBox?.trim()
-      const parsedBox = box
-        ? box
-            .split(" ")
-            .map((value) => Number.parseFloat(value))
-            .filter((value) => Number.isFinite(value))
-        : []
-
-      if (parsedBox.length === 4) {
-        nextWidth = parsedBox[2]
-        nextHeight = parsedBox[3]
-      }
-    }
-
-    return {
-      width: Number.isFinite(nextWidth) && nextWidth > 0 ? Math.round(nextWidth) : 200,
-      height: Number.isFinite(nextHeight) && nextHeight > 0 ? Math.round(nextHeight) : 200,
-    }
-  }, [])
-
-  const createFrameLayerFromSvg = useCallback((file: File, content: string): FrameLayer | null => {
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(content, "image/svg+xml")
-    const svgElement = doc.querySelector("svg")
-
-    if (!svgElement) return null
-
-    const { width, height } = parseFrameViewport(
-      svgElement.getAttribute("width"),
-      svgElement.getAttribute("height"),
-      svgElement.getAttribute("viewBox"),
-    )
-
-    const innerHtml = svgElement.innerHTML.trim()
-
-    if (!innerHtml) return null
-
-    return {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
-      name: file.name,
-      content: innerHtml,
-      originalWidth: width,
-      originalHeight: height,
-      durationMs: FRAME_DEFAULT_DURATION_MS,
-    }
-  }, [parseFrameViewport])
-
-  const createFrameLayerFromRaster = useCallback(async (file: File): Promise<FrameLayer | null> => {
-    const ImageTracer = (await import("imagetracerjs")).default
-    const reader = new FileReader()
-
-    return await new Promise<FrameLayer | null>((resolve) => {
-      reader.onload = (event) => {
-        const fileResult = event.target?.result
-        if (typeof fileResult !== "string") {
-          resolve(null)
-          return
-        }
-
-        const imgElement = document.createElement("img")
-
-        imgElement.onload = () => {
-          let scaledWidth = imgElement.width
-          let scaledHeight = imgElement.height
-
-          if (imgElement.width > CANVAS_UPLOAD_MAX_WIDTH) {
-            const scaleRatio = CANVAS_UPLOAD_MAX_WIDTH / imgElement.width
-            scaledWidth = CANVAS_UPLOAD_MAX_WIDTH
-            scaledHeight = Math.round(imgElement.height * scaleRatio)
-          }
-
-          const canvas = document.createElement("canvas")
-          const ctx = canvas.getContext("2d")
-          if (!ctx) {
-            resolve(null)
-            return
-          }
-
-          canvas.width = scaledWidth
-          canvas.height = scaledHeight
-          ctx.drawImage(imgElement, 0, 0, scaledWidth, scaledHeight)
-
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-
-          const svgString = ImageTracer.imagedataToSVG(imageData, {
-            ltres: 1,
-            qtres: 1,
-            pathomit: 8,
-            rightangleenhance: true,
-            colorsampling: 1,
-            numberofcolors: 16,
-            mincolorratio: 0.02,
-            colorquantcycles: 3,
-            scale: 1,
-            strokewidth: 1,
-            blurradius: 0,
-            blurdelta: 20,
-          })
-
-          const doc = new DOMParser().parseFromString(svgString, "image/svg+xml")
-          const svgElement = doc.querySelector("svg")
-
-          if (!svgElement) {
-            resolve(null)
-            return
-          }
-
-          const content = svgElement.innerHTML.trim()
-          if (!content) {
-            resolve(null)
-            return
-          }
-
-          resolve({
-            id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
-            name: file.name,
-            content,
-            originalWidth: scaledWidth,
-            originalHeight: scaledHeight,
-            durationMs: FRAME_DEFAULT_DURATION_MS,
-          })
-        }
-
-        imgElement.onerror = () => {
-          resolve(null)
-        }
-
-        imgElement.src = fileResult
-      }
-
-      reader.onerror = () => {
-        resolve(null)
-      }
-
-      reader.readAsDataURL(file)
-    })
-  }, [CANVAS_UPLOAD_MAX_WIDTH])
-
-  const addFrameLayer = useCallback((nextLayer: FrameLayer) => {
-    setFrameLayers((prev) => {
-      const next = [...prev, nextLayer]
-      const nextIndex = next.length - 1
-      setCurrentFrameIndex(nextIndex)
-      return next
-    })
-  }, [])
-
   const handleOverlayFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!canRunFilePipeline()) {
-      setUploadErrorMessage("현재 브라우저에서는 오버레이 업로드를 지원하지 않습니다.")
-      event.target.value = ""
-      return
-    }
-
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file) return
-
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setUploadErrorMessage(`이미지 업로드는 최대 ${MAX_UPLOAD_MB}MB까지 가능합니다.`)
-      setProcessingStage("idle")
-      return
-    }
-
-    setProcessingStage("overlayUpload")
-    setUploadErrorMessage(null)
 
     const slot = overlayTargetSlotRef.current
     const reader = new FileReader()
 
     reader.onload = () => {
       const result = reader.result
-      if (typeof result !== "string") {
-        setUploadErrorMessage("오버레이 이미지를 읽는 중 오류가 발생했습니다.")
-        setProcessingStage("idle")
-        return
-      }
+      if (typeof result !== "string") return
 
       const img = new Image()
       img.onload = () => {
@@ -574,12 +225,9 @@ export default function SVGBoilingAnimation() {
           ...prev,
           slot,
         }))
-        setProcessingStage("idle")
       }
 
       img.onerror = () => {
-        setUploadErrorMessage("오버레이 이미지를 읽는 중 오류가 발생했습니다.")
-        setProcessingStage("idle")
         console.error("Failed to read overlay image")
       }
 
@@ -587,71 +235,18 @@ export default function SVGBoilingAnimation() {
     }
 
     reader.onerror = () => {
-      setUploadErrorMessage("오버레이 이미지를 읽는 중 오류가 발생했습니다.")
-      setProcessingStage("idle")
       console.error("Failed to read overlay file")
     }
 
     reader.readAsDataURL(file)
-  }, [canRunFilePipeline])
-
-  const handleResize = useCallback(() => {
-    const widthScale = window.innerWidth / (DESIGN_WIDTH + DESIGN_PADDING * 2)
-    const heightScale = window.innerHeight / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
-    const nextScale = Math.min(widthScale, heightScale, VIEWPORT_SCALE_MAX)
-    const nextDesignWidth = Math.round(DESIGN_WIDTH * nextScale)
-    const layerPanelSideLeft = Math.round(LAYER_PANEL_SIDE_LEFT * nextScale)
-    const layerPanelWidth = Math.round(LAYER_PANEL_WIDTH * nextScale)
-    const layerPanelGap = Math.round(12 * nextScale)
-    const contentLeftOffset = (window.innerWidth - nextDesignWidth) / 2
-    const hasSideLayout =
-      contentLeftOffset + layerPanelSideLeft + layerPanelWidth + layerPanelGap <= window.innerWidth
-
-    const nextCanvasMaxWidth = Math.max(
-      CANVAS_FRAME_MIN_WIDTH,
-      isMobile
-        ? Math.floor(window.innerWidth / nextScale - DESIGN_PADDING * 2)
-        : Math.floor((window.innerWidth * CANVAS_FRAME_DESKTOP_MAX_RATIO) / nextScale),
-    )
-
-    setCanvasFrameWidth((previousWidth) => {
-      if (hasManualCanvasWidthRef.current) {
-        return clamp(previousWidth, CANVAS_FRAME_MIN_WIDTH, nextCanvasMaxWidth)
-      }
-
-      return Math.max(CANVAS_FRAME_MIN_WIDTH, nextCanvasMaxWidth)
-    })
-
-    setIsLayerPanelSideLayout(hasSideLayout)
-    setViewportScale(nextScale)
-  }, [
-    DESIGN_HEIGHT,
-    DESIGN_PADDING,
-    DESIGN_WIDTH,
-    LAYER_PANEL_SIDE_LEFT,
-    LAYER_PANEL_WIDTH,
-    VIEWPORT_SCALE_MAX,
-    isMobile,
-  ])
-
-  const getCanvasMaxUnits = useCallback(
-    (nextScale = viewportScale, mobileMode = isMobile) => {
-    if (mobileMode) {
-      return Math.max(
-        CANVAS_FRAME_MIN_WIDTH,
-        Math.floor(window.innerWidth / nextScale - DESIGN_PADDING * 2),
-      )
-    }
-
-      return Math.max(
-        CANVAS_FRAME_MIN_WIDTH,
-        Math.floor((window.innerWidth * CANVAS_FRAME_DESKTOP_MAX_RATIO) / nextScale),
-      )
-    },
-    [isMobile, viewportScale],
-  )
+  }, [])
 
   useEffect(() => {
+    const handleResize = () => {
+      const widthScale = window.innerWidth / (DESIGN_WIDTH + DESIGN_PADDING * 2)
+      const heightScale = window.innerHeight / (DESIGN_HEIGHT + DESIGN_PADDING * 2)
+      setViewportScale(Math.min(widthScale, heightScale, VIEWPORT_SCALE_MAX))
+    }
 
     handleResize()
     window.addEventListener("resize", handleResize)
@@ -659,55 +254,7 @@ export default function SVGBoilingAnimation() {
     return () => {
       window.removeEventListener("resize", handleResize)
     }
-  }, [handleResize])
-
-  const handleCanvasResizeMove = useCallback(
-    (event: PointerEvent) => {
-      if (canvasFrameDragPointerIdRef.current !== event.pointerId) return
-
-      const deltaX = event.clientX - canvasResizeStartXRef.current
-      const deltaUnits = Math.round(deltaX / viewportScale)
-      const maxUnits = getCanvasMaxUnits(viewportScale, isMobile)
-
-      setCanvasFrameWidth(
-        clamp(
-          canvasResizeStartWidthRef.current + deltaUnits,
-          CANVAS_FRAME_MIN_WIDTH,
-          maxUnits,
-        ),
-      )
-    },
-    [getCanvasMaxUnits, isMobile, viewportScale],
-  )
-
-  const handleCanvasResizeEnd = useCallback(() => {
-    const pointerId = canvasFrameDragPointerIdRef.current
-    if (pointerId === null) return
-
-    window.removeEventListener("pointermove", handleCanvasResizeMove)
-    window.removeEventListener("pointerup", handleCanvasResizeEnd)
-    window.removeEventListener("pointercancel", handleCanvasResizeEnd)
-    canvasFrameDragPointerIdRef.current = null
-  }, [handleCanvasResizeMove])
-
-  const handleCanvasResizeStart = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (isMobile) return
-
-      event.preventDefault()
-      hasManualCanvasWidthRef.current = true
-      canvasFrameDragPointerIdRef.current = event.pointerId
-      canvasResizeStartXRef.current = event.clientX
-      canvasResizeStartWidthRef.current = canvasFrameWidth
-
-      if (canvasFrameDragPointerIdRef.current !== null) {
-        window.addEventListener("pointermove", handleCanvasResizeMove)
-        window.addEventListener("pointerup", handleCanvasResizeEnd)
-        window.addEventListener("pointercancel", handleCanvasResizeEnd)
-      }
-    },
-    [canvasFrameWidth, handleCanvasResizeEnd, handleCanvasResizeMove, isMobile],
-  )
+  }, [DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_PADDING, VIEWPORT_SCALE_MAX])
 
   const applyFilters = useCallback(() => {
     const svg = animatedSvgRef.current
@@ -772,11 +319,8 @@ export default function SVGBoilingAnimation() {
     const svg = animatedSvgRef.current
     if (!svg) return
 
-    const currentTremorValue = tremorValueRef.current
-    const currentIntensityValue = intensityValueRef.current
-
     const offset = OFFSET_ARRAY[currentIndexRef.current]
-    let newBaseFrequency = currentTremorValue + offset * animationScaleRef.current
+    let newBaseFrequency = tremorValue + offset * animationScale
 
     // 항상 양수 유지
     newBaseFrequency = Math.max(0.0001, newBaseFrequency)
@@ -788,13 +332,13 @@ export default function SVGBoilingAnimation() {
       turbulence.setAttribute("baseFrequency", newBaseFrequency.toString())
     }
     if (displacement) {
-      displacement.setAttribute("scale", currentIntensityValue.toString())
+      displacement.setAttribute("scale", intensityValue.toString())
     }
 
     currentIndexRef.current = (currentIndexRef.current + 1) % OFFSET_ARRAY.length
-  }, [])
+  }, [tremorValue, intensityValue, animationScale])
 
-  const syncFilterValues = useCallback((nextTremorValue: number, nextIntensityValue: number) => {
+  const syncDialFilterValues = useCallback((nextTremorValue: number, nextIntensityValue: number) => {
     const svg = animatedSvgRef.current
     if (!svg) return
 
@@ -817,113 +361,162 @@ export default function SVGBoilingAnimation() {
     setIsAnimating(true)
   }, [animationSpeed, updateAnimation])
 
+  const stopAnimation = useCallback(() => {
+    if (animationIntervalRef.current) {
+      clearInterval(animationIntervalRef.current)
+      animationIntervalRef.current = null
+    }
+    setIsAnimating(false)
+    
+    // 애니메이션 정지 후에도 필터는 현재 다이얼 값으로 유지
+    setTimeout(() => {
+      const svg = animatedSvgRef.current
+      if (svg) {
+        const turbulence = svg.querySelector("feTurbulence")
+        const displacement = svg.querySelector("feDisplacementMap")
+        
+        if (turbulence) {
+          turbulence.setAttribute("baseFrequency", Math.max(0.0001, tremorValue).toString())
+        }
+        if (displacement) {
+          displacement.setAttribute("scale", intensityValue.toString())
+        }
+      }
+    }, 10)
+  }, [intensityValue, tremorValue])
+
   const resetValues = () => {
-    tremorValueRef.current = TREMOR_DEFAULT
-    intensityValueRef.current = INTENSITY_DEFAULT
-    animationScaleRef.current = ANIMATION_SCALE_DEFAULT
-    setTremorValue(TREMOR_DEFAULT)
-    setIntensityValue(INTENSITY_DEFAULT)
-    setAnimationScale(ANIMATION_SCALE_DEFAULT)
+    tremorValueRef.current = TREMOR_MIN
+    intensityValueRef.current = INTENSITY_MIN
+    currentRotationRef.current = 0
+    currentRotation2Ref.current = 0
+    setTremorValue(TREMOR_MIN)
+    setIntensityValue(INTENSITY_MIN)
+    setCurrentRotation(0)
+    setCurrentRotation2(0)
+    setAnimationScale(0.2)
     setAnimationSpeed(100)
-    syncFilterValues(TREMOR_DEFAULT, INTENSITY_DEFAULT)
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!canRunFilePipeline()) {
-      setUploadErrorMessage("현재 브라우저에서는 이미지 업로드를 지원하지 않습니다.")
-      event.target.value = ""
-      return
-    }
-
-    const input = event.target
     resetValues()
-    setUploadErrorMessage(null)
-    const file = input.files?.[0]
+    const file = event.target.files?.[0]
     if (!file) return
 
-    setProcessingStage("frameUpload")
-
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setUploadErrorMessage(`이미지 업로드는 최대 ${MAX_UPLOAD_MB}MB까지 가능합니다.`)
-      setProcessingStage("idle")
-      input.value = ""
-      return
-    }
-
-    if (isSvgFile(file)) {
+    const fileType = file.type
+    
+    if (fileType === 'image/svg+xml' || file.name.endsWith('.svg')) {
+      // Handle SVG files as before
       const reader = new FileReader()
+      reader.onload = (e) => {
+        const content = e.target?.result as string
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(content, "image/svg+xml")
+        const svgElement = doc.querySelector("svg")
 
-      reader.onload = (uploadEvent) => {
-        const content = uploadEvent.target?.result
-        if (typeof content !== "string") {
-          setUploadErrorMessage("SVG 파일을 읽는 데 실패했습니다.")
-          setProcessingStage("idle")
-          input.value = ""
-          return
+        if (svgElement) {
+          // Extract inner content (excluding svg wrapper)
+          setSvgContent(svgElement.innerHTML)
+          
+          // Extract viewBox, width, and height
+            const viewBox = svgElement.getAttribute("viewBox") || "0 0 200 200"
+          
+          const width = svgElement.getAttribute("width")
+          const height = svgElement.getAttribute("height")
+          
+          // If width and height are not specified, calculate from viewBox
+          let svgWidth = 200
+          let svgHeight = 200
+          
+          if (width && height) {
+            svgWidth = parseInt(width, 10)
+            svgHeight = parseInt(height, 10)
+          } else {
+            const viewBoxValues = viewBox.split(" ").map(Number)
+            if (viewBoxValues.length === 4) {
+              svgWidth = viewBoxValues[2]
+              svgHeight = viewBoxValues[3]
+            }
+          }
+          
+          setOriginalWidth(svgWidth)
+          setOriginalHeight(svgHeight)
         }
-
-        const nextLayer = createFrameLayerFromSvg(file, content)
-        if (!nextLayer) {
-          setUploadErrorMessage("SVG 파일을 읽는 데 실패했습니다.")
-          setProcessingStage("idle")
-          input.value = ""
-          return
-        }
-
-        addFrameLayer(nextLayer)
-        setUploadErrorMessage(null)
-        setProcessingStage("idle")
-        input.value = ""
       }
-
-      reader.onerror = () => {
-        setUploadErrorMessage("SVG 파일을 읽는 중 오류가 발생했습니다.")
-        console.error("Error reading SVG file")
-        setProcessingStage("idle")
-        input.value = ""
-      }
-
       reader.readAsText(file)
-      return
-    }
-
-    if (isRasterFile(file)) {
+    } else if (fileType === 'image/png' || fileType === 'image/jpeg' || fileType === 'image/jpg') {
+      // Handle PNG/JPG files with imagetracerjs
       try {
-        setProcessingStage("rasterTrace")
-        const nextLayer = await createFrameLayerFromRaster(file)
-        if (nextLayer) {
-          addFrameLayer(nextLayer)
-          setUploadErrorMessage(null)
-        } else {
-          setUploadErrorMessage("이미지 변환 결과를 생성하지 못했습니다.")
-        }
-      } catch (error) {
-        setUploadErrorMessage("이미지 변환 중 오류가 발생했습니다.")
-        console.error("Error converting image to SVG:", error)
-      } finally {
-        setProcessingStage("idle")
-        input.value = ""
-      }
-      return
-    }
+        // Dynamic import to avoid SSR issues
+        const ImageTracer = (await import('imagetracerjs')).default
 
-    setUploadErrorMessage("지원하지 않는 파일 형식입니다.")
-    console.error("Unsupported file type:", file.type || file.name)
-    setProcessingStage("idle")
-    input.value = ""
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          const imgElement = document.createElement("img")
+          imgElement.onload = () => {
+            const maxWidth = CANVAS_UPLOAD_MAX_WIDTH
+             let scaledWidth = imgElement.width
+             let scaledHeight = imgElement.height
+            
+             if (imgElement.width > maxWidth) {
+               const scaleRatio = maxWidth / imgElement.width
+               scaledWidth = maxWidth
+               scaledHeight = imgElement.height * scaleRatio
+             }
+            
+            // Create canvas to get image data
+            const canvas = document.createElement('canvas')
+            const ctx = canvas.getContext('2d')
+            if (!ctx) return
+
+            canvas.width = scaledWidth
+            canvas.height = scaledHeight
+            ctx.drawImage(imgElement, 0, 0, scaledWidth, scaledHeight)
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            
+            // Convert to SVG using ImageTracer
+            const svgString = ImageTracer.imagedataToSVG(imageData, {
+              ltres: 1,
+              qtres: 1,
+              pathomit: 8,
+              rightangleenhance: true,
+              colorsampling: 1,
+              numberofcolors: 16,
+              mincolorratio: 0.02,
+              colorquantcycles: 3,
+              scale: 1,
+              strokewidth: 1,
+              blurradius: 0,
+              blurdelta: 20
+            })
+
+            // Parse the generated SVG
+            const parser = new DOMParser()
+            const doc = parser.parseFromString(svgString, "image/svg+xml")
+            const svgElement = doc.querySelector("svg")
+
+            if (svgElement) {
+              // Extract inner content (excluding svg wrapper)
+              setSvgContent(svgElement.innerHTML)
+              
+              // Set dimensions based on scaled image
+              setOriginalWidth(scaledWidth)
+              setOriginalHeight(scaledHeight)
+            setScaledViewBox(`0 0 ${scaledWidth} ${scaledHeight}`)
+            }
+          }
+          imgElement.src = e.target?.result as string
+        }
+        reader.readAsDataURL(file)
+      } catch (error) {
+        console.error('Error converting image to SVG:', error)
+      }
+    }
   }
 
   const exportAsGIF = async () => {
-    const canRunGifExport = canRunGifWorker() && canRunFilePipeline()
-
-    if (!canRunGifExport) {
-      setUploadErrorMessage("이 브라우저에서는 GIF 내보내기가 지원되지 않습니다.")
-      return
-    }
-
-    setUploadErrorMessage(null)
     setIsExporting(true)
-    setProcessingStage("gifExport")
 
     try {
       // Dynamic import to avoid SSR issues
@@ -997,9 +590,7 @@ export default function SVGBoilingAnimation() {
       canvas.width = 300
       canvas.height = 300
       const ctx = canvas.getContext("2d")
-      if (!ctx) {
-        throw new Error("GIF 렌더링을 위한 Canvas context를 사용할 수 없습니다.")
-      }
+      if (!ctx) return
 
         // Create only 3 frames for GIF (3fps pattern)
         const frameCount = 3
@@ -1076,20 +667,7 @@ export default function SVGBoilingAnimation() {
         a.download = "boiling-animation.gif"
         a.click()
         URL.revokeObjectURL(url)
-        setUploadErrorMessage(null)
         setIsExporting(false)
-        setProcessingStage("idle")
-      })
-
-      const gifWithLooseEvents = gif as unknown as {
-        on: (event: string, callback: (value: unknown) => void) => void
-      }
-
-      gifWithLooseEvents.on("error", (error: unknown) => {
-        console.error("Error exporting GIF:", error)
-        setIsExporting(false)
-        setProcessingStage("idle")
-        setUploadErrorMessage("GIF를 렌더링하는 중 오류가 발생했습니다.")
       })
 
       gif.on("progress", (p: number) => {
@@ -1100,8 +678,6 @@ export default function SVGBoilingAnimation() {
     } catch (error) {
       console.error("Error exporting GIF:", error)
       setIsExporting(false)
-      setProcessingStage("idle")
-      setUploadErrorMessage("GIF를 내보내는 중 오류가 발생했습니다.")
     }
   }
 
@@ -1126,77 +702,6 @@ export default function SVGBoilingAnimation() {
     const newScaledViewBox = `${-offsetX} ${-offsetY} ${maxWidth} ${viewBoxHeight}`
     setScaledViewBox(newScaledViewBox)
   }, [originalWidth, originalHeight])
-
-  useEffect(() => {
-    if (frameLayers.length === 0) {
-      return
-    }
-
-    const clampedIndex = Math.min(currentFrameIndex, frameLayers.length - 1)
-    if (clampedIndex !== currentFrameIndex) {
-      setCurrentFrameIndex(clampedIndex)
-      return
-    }
-
-    const activeLayer = frameLayers[clampedIndex]
-    if (!activeLayer) return
-
-    if (svgContent !== activeLayer.content) {
-      setSvgContent(activeLayer.content)
-    }
-    if (originalWidth !== activeLayer.originalWidth) {
-      setOriginalWidth(activeLayer.originalWidth)
-    }
-    if (originalHeight !== activeLayer.originalHeight) {
-      setOriginalHeight(activeLayer.originalHeight)
-    }
-  }, [currentFrameIndex, frameLayers, svgContent, originalWidth, originalHeight])
-
-  useEffect(() => {
-    if (frameRemainingIntervalRef.current) {
-      clearInterval(frameRemainingIntervalRef.current)
-      frameRemainingIntervalRef.current = null
-    }
-    if (frameAdvanceTimeoutRef.current) {
-      clearTimeout(frameAdvanceTimeoutRef.current)
-      frameAdvanceTimeoutRef.current = null
-    }
-
-    if (frameLayers.length <= 1) {
-      setFrameRemainingMs(currentFrameDurationMs)
-      frameDeadlineRef.current = null
-      return
-    }
-
-    frameDeadlineRef.current = performance.now() + currentFrameDurationMs
-    setFrameRemainingMs(currentFrameDurationMs)
-
-    frameRemainingIntervalRef.current = window.setInterval(() => {
-      if (frameDeadlineRef.current === null) return
-
-      const nextRemainingMs = frameDeadlineRef.current - performance.now()
-      setFrameRemainingMs(Math.max(0, nextRemainingMs))
-    }, 50)
-
-    frameAdvanceTimeoutRef.current = window.setTimeout(() => {
-      setCurrentFrameIndex((prev) => {
-        if (frameLayers.length === 0) return 0
-        if (prev >= frameLayers.length - 1) return 0
-        return prev + 1
-      })
-    }, currentFrameDurationMs)
-
-    return () => {
-      if (frameRemainingIntervalRef.current) {
-        clearInterval(frameRemainingIntervalRef.current)
-        frameRemainingIntervalRef.current = null
-      }
-      if (frameAdvanceTimeoutRef.current) {
-        clearTimeout(frameAdvanceTimeoutRef.current)
-        frameAdvanceTimeoutRef.current = null
-      }
-    }
-  }, [currentFrameDurationMs, frameLayers, currentFrameIndex])
 
   useEffect(() => {
     applyFilters()
@@ -1225,10 +730,6 @@ export default function SVGBoilingAnimation() {
         clearInterval(animationIntervalRef.current)
         animationIntervalRef.current = null
       }
-      if (frameAdvanceTimeoutRef.current) {
-        clearTimeout(frameAdvanceTimeoutRef.current)
-        frameAdvanceTimeoutRef.current = null
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1239,112 +740,262 @@ export default function SVGBoilingAnimation() {
     }
   }, [animationSpeed, isAnimating, startAnimation])
 
-  const handleTremorChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextValue = clamp(Number(event.target.value), TREMOR_MIN, TREMOR_MAX)
-    tremorValueRef.current = nextValue
-    setTremorValue(nextValue)
-    syncFilterValues(nextValue, intensityValueRef.current)
-  }, [syncFilterValues])
-
-  const handleIntensityChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextValue = clamp(Number(event.target.value), INTENSITY_MIN, INTENSITY_MAX)
-    intensityValueRef.current = nextValue
-    setIntensityValue(nextValue)
-    syncFilterValues(tremorValueRef.current, nextValue)
-  }, [syncFilterValues])
-
-  const handleAnimationScaleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextValue = clamp(Number(event.target.value), ANIMATION_SCALE_MIN, ANIMATION_SCALE_MAX)
-    animationScaleRef.current = nextValue
-    setAnimationScale(nextValue)
+  // 볼륨 다이얼 관련 함수들
+  const getAngle = useCallback((centerX: number, centerY: number, clientX: number, clientY: number) => {
+    const deltaX = clientX - centerX
+    const deltaY = clientY - centerY
+    return Math.atan2(deltaY, deltaX) * (180 / Math.PI)
   }, [])
 
-  const activeMobileSlider = useMemo(
-    () =>
-      selectedMobileSlider === "tremor"
-        ? {
-            label: "떨림 강도",
-            value: tremorValue,
-            min: TREMOR_MIN,
-            max: TREMOR_MAX,
-            step: 0.001,
-            displayValue: tremorValue.toFixed(4),
-            onChange: handleTremorChange,
-            ariaLabel: "떨림 강도 슬라이더",
-          }
-        : selectedMobileSlider === "intensity"
-          ? {
-              label: "세기 강도",
-              value: intensityValue,
-              min: INTENSITY_MIN,
-              max: INTENSITY_MAX,
-              step: 0.1,
-              displayValue: intensityValue.toFixed(1),
-              onChange: handleIntensityChange,
-              ariaLabel: "세기 강도 슬라이더",
-            }
-          : {
-              label: "보일링 폭",
-              value: animationScale,
-              min: ANIMATION_SCALE_MIN,
-              max: ANIMATION_SCALE_MAX,
-              step: 0.01,
-              displayValue: animationScale.toFixed(2),
-              onChange: handleAnimationScaleChange,
-              ariaLabel: "보일링 애니메이션 폭 슬라이더",
-            },
-    [
-      animationScale,
-      selectedMobileSlider,
-      handleAnimationScaleChange,
-      handleIntensityChange,
-      handleTremorChange,
-      intensityValue,
-      tremorValue,
-    ],
-  )
+  const updateDialFromValues = useCallback((dialNumber: 1 | 2, nextValue: number) => {
+    if (dialNumber === 1) {
+      const clamped = clamp(nextValue, TREMOR_MIN, TREMOR_MAX)
+      tremorValueRef.current = clamped
+      currentRotationRef.current = valueToAngle(clamped, TREMOR_MIN, TREMOR_MAX)
+      setTremorValue(clamped)
+      setCurrentRotation(currentRotationRef.current)
+      syncDialFilterValues(clamped, intensityValueRef.current)
+      return
+    }
 
-  const handleFrameSelect = useCallback((frameId: string) => {
-    const nextIndex = frameLayers.findIndex((frame) => frame.id === frameId)
-    if (nextIndex === -1) return
-    setCurrentFrameIndex(nextIndex)
-  }, [frameLayers])
+    const clamped = clamp(nextValue, INTENSITY_MIN, INTENSITY_MAX)
+    intensityValueRef.current = clamped
+    currentRotation2Ref.current = valueToAngle(clamped, INTENSITY_MIN, INTENSITY_MAX)
+    setIntensityValue(clamped)
+    setCurrentRotation2(currentRotation2Ref.current)
+    syncDialFilterValues(tremorValueRef.current, clamped)
+  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
 
-  const handleFrameDurationChange = useCallback((frameId: string, value: string) => {
-    const nextValue = clamp(
-      Math.round(Number(value) * 1000),
-      FRAME_DURATION_MIN_MS,
-      FRAME_DURATION_MAX_MS,
-    )
+  const updateTremorValue = useCallback((angleDiff: number, dialNumber: 1 | 2 = 1) => {
+    let nextTremorValue = tremorValueRef.current
+    let nextIntensityValue = intensityValueRef.current
 
-    setFrameLayers((prev) =>
-      prev.map((frame) => {
-        if (frame.id !== frameId) return frame
-        return { ...frame, durationMs: nextValue }
-      }),
-    )
-  }, [])
+    if (dialNumber === 1) {
+      const valueRange = TREMOR_MAX - TREMOR_MIN
+      const valueChange = (angleDiff / 360) * valueRange
+      const unclamped = tremorValueRef.current + valueChange
+      nextTremorValue = clamp(Math.max(0.0001, unclamped), TREMOR_MIN, TREMOR_MAX)
 
-  const handleFrameRemove = useCallback((frameId: string) => {
-    setFrameLayers((prev) => {
-      if (prev.length <= 1) return prev
+      tremorValueRef.current = nextTremorValue
+      currentRotationRef.current = valueToAngle(nextTremorValue, TREMOR_MIN, TREMOR_MAX)
+      setTremorValue(nextTremorValue)
+      setCurrentRotation(currentRotationRef.current)
+    } else {
+      const valueRange = INTENSITY_MAX - INTENSITY_MIN
+      const valueChange = (angleDiff / 360) * valueRange
+      const unclamped = intensityValueRef.current + valueChange
+      nextIntensityValue = clamp(Math.max(INTENSITY_MIN, unclamped), INTENSITY_MIN, INTENSITY_MAX)
 
-      const next = prev.filter((frame) => frame.id !== frameId)
-      const removedIndex = prev.findIndex((frame) => frame.id === frameId)
+      intensityValueRef.current = nextIntensityValue
+      currentRotation2Ref.current = valueToAngle(nextIntensityValue, INTENSITY_MIN, INTENSITY_MAX)
+      setIntensityValue(nextIntensityValue)
+      setCurrentRotation2(currentRotation2Ref.current)
+    }
 
-      if (removedIndex === -1) {
-        return prev
+    // 즉시 필터 업데이트 (드래그 중 실시간 반영)
+    syncDialFilterValues(tremorValueRef.current, intensityValueRef.current)
+  }, [INTENSITY_MAX, INTENSITY_MIN, TREMOR_MAX, TREMOR_MIN, syncDialFilterValues, valueToAngle])
+
+  const DIAL_KEY_STEP = 10
+
+  const handleDialKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
+    const isTremorDial = dialNumber === 1
+    if (
+      event.key === "ArrowLeft" ||
+      event.key === "ArrowDown" ||
+      event.key === "ArrowRight" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
+      event.preventDefault()
+      stopAnimation()
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      updateTremorValue(-DIAL_KEY_STEP, dialNumber)
+      startAnimation()
+      return
+    }
+
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      updateTremorValue(DIAL_KEY_STEP, dialNumber)
+      startAnimation()
+      return
+    }
+
+    if (event.key === "Home") {
+      updateDialFromValues(dialNumber, isTremorDial ? TREMOR_MIN : INTENSITY_MIN)
+      startAnimation()
+      return
+    }
+
+    if (event.key === "End") {
+      updateDialFromValues(dialNumber, isTremorDial ? TREMOR_MAX : INTENSITY_MAX)
+      startAnimation()
+    }
+  }, [startAnimation, stopAnimation, updateDialFromValues, updateTremorValue])
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
+    // 애니메이션만 중지, 필터는 유지
+    stopAnimation()
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+
+    if (dialNumber === 1) {
+      isDraggingRef.current = true
+      startAngleRef.current = getAngle(centerX, centerY, e.clientX, e.clientY)
+    } else {
+      isDragging2Ref.current = true
+      startAngle2Ref.current = getAngle(centerX, centerY, e.clientX, e.clientY)
+    }
+    e.preventDefault()
+  }
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLButtonElement>, dialNumber: 1 | 2) => {
+    stopAnimation()
+
+    const touch = e.touches[0]
+    if (!touch) return
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+
+    if (dialNumber === 1) {
+      isDraggingRef.current = true
+      startAngleRef.current = getAngle(centerX, centerY, touch.clientX, touch.clientY)
+    } else {
+      isDragging2Ref.current = true
+      startAngle2Ref.current = getAngle(centerX, centerY, touch.clientX, touch.clientY)
+    }
+    e.preventDefault()
+  }, [getAngle, stopAnimation])
+
+  const handleDocumentTouchMove = useCallback((e: TouchEvent) => {
+    const touch = e.touches[0]
+    if (!touch) return
+
+    if (isDraggingRef.current) {
+      const volumeDial = document.getElementById('tremor-circle')
+      if (volumeDial) {
+        const rect = volumeDial.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+
+        const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
+        let angleDiff = currentAngle - startAngleRef.current
+
+        if (angleDiff > 180) angleDiff -= 360
+        if (angleDiff < -180) angleDiff += 360
+
+        updateTremorValue(angleDiff, 1)
+        startAngleRef.current = currentAngle
       }
+    }
 
-      if (removedIndex < currentFrameIndex) {
-        setCurrentFrameIndex((prevIndex) => Math.max(0, prevIndex - 1))
-      } else if (removedIndex === currentFrameIndex) {
-        setCurrentFrameIndex(Math.min(removedIndex, next.length - 1))
+    if (isDragging2Ref.current) {
+      const volumeDial2 = document.getElementById('tremor-circle-2')
+      if (volumeDial2) {
+        const rect = volumeDial2.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+
+        const currentAngle = getAngle(centerX, centerY, touch.clientX, touch.clientY)
+        let angleDiff = currentAngle - startAngle2Ref.current
+
+        if (angleDiff > 180) angleDiff -= 360
+        if (angleDiff < -180) angleDiff += 360
+
+        updateTremorValue(angleDiff, 2)
+        startAngle2Ref.current = currentAngle
       }
+    }
 
-      return next
-    })
-  }, [currentFrameIndex])
+    e.preventDefault()
+  }, [getAngle, updateTremorValue])
+
+  const handleDocumentTouchEnd = useCallback(() => {
+    isDraggingRef.current = false
+    isDragging2Ref.current = false
+    setTimeout(() => {
+      applyFilters()
+    }, 10)
+    startAnimation()
+  }, [applyFilters, startAnimation])
+
+  const handleDocumentMouseMove = useCallback((event: MouseEvent) => {
+    if (isDraggingRef.current) {
+      const volumeDial = document.getElementById('tremor-circle')
+      if (volumeDial) {
+        const rect = volumeDial.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+
+        const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
+        let angleDiff = currentAngle - startAngleRef.current
+
+        if (angleDiff > 180) angleDiff -= 360
+        if (angleDiff < -180) angleDiff += 360
+
+        updateTremorValue(angleDiff, 1)
+        startAngleRef.current = currentAngle
+      }
+    }
+
+    if (isDragging2Ref.current) {
+      const volumeDial2 = document.getElementById('tremor-circle-2')
+      if (volumeDial2) {
+        const rect = volumeDial2.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+
+        const currentAngle = getAngle(centerX, centerY, event.clientX, event.clientY)
+        let angleDiff = currentAngle - startAngle2Ref.current
+
+        if (angleDiff > 180) angleDiff -= 360
+        if (angleDiff < -180) angleDiff += 360
+
+        updateTremorValue(angleDiff, 2)
+        startAngle2Ref.current = currentAngle
+      }
+    }
+  }, [getAngle, updateTremorValue])
+
+  const handleDocumentMouseUp = useCallback(() => {
+    isDraggingRef.current = false
+    isDragging2Ref.current = false
+
+    // 드래그 종료 후 전체 필터를 다시 적용하여 지속성 보장
+    setTimeout(() => {
+      applyFilters()
+    }, 10) // 짧은 지연으로 상태 업데이트 완료 후 적용
+
+    // 애니메이션 재시작
+    startAnimation()
+  }, [applyFilters, startAnimation])
+
+  // 마우스 이벤트 리스너 추가
+  useEffect(() => {
+    document.addEventListener('mousemove', handleDocumentMouseMove)
+    document.addEventListener('mouseup', handleDocumentMouseUp)
+    document.addEventListener('touchmove', handleDocumentTouchMove, { passive: false })
+    document.addEventListener('touchend', handleDocumentTouchEnd, { passive: false })
+
+    return () => {
+      document.removeEventListener('mousemove', handleDocumentMouseMove)
+      document.removeEventListener('mouseup', handleDocumentMouseUp)
+      document.removeEventListener('touchmove', handleDocumentTouchMove)
+      document.removeEventListener('touchend', handleDocumentTouchEnd)
+    }
+  }, [
+    handleDocumentMouseMove,
+    handleDocumentMouseUp,
+    handleDocumentTouchMove,
+    handleDocumentTouchEnd,
+  ])
 
   return (
       <div style={{
@@ -1572,53 +1223,25 @@ export default function SVGBoilingAnimation() {
       {/* Canvas Area */}
       <div style={{
         position: 'absolute',
-        left: `${scaledSize(CANVAS_LEFT)}px`,
-        top: vhp(20),
-        width: CANVAS_WIDTH_PX_STYLE,
-        height: `${CANVAS_HEIGHT_PX}px`,
+        left: vwp(30),
+        top: vhp(65),
+        width: vwp(350),
+        height: vhp(511)
       }}>
         <NextImage src="/svg/Rectangle-267.svg" alt="Canvas background" width={378} height={519} style={{
           width: '100%',
           height: '100%',
           position: 'absolute',
           zIndex: 0,
-          right: `${CANVAS_BG_RIGHT_OFFSET_PX}px`,
-          bottom: `${CANVAS_BG_BOTTOM_OFFSET_PX}px`,
+          right: vwp(10),
+          bottom: vhp(30)
         }} />
-        {isMobile ? null : (
-          <div
-            onPointerDown={handleCanvasResizeStart}
-            style={{
-              position: 'absolute',
-              right: 0,
-              top: 0,
-              width: `${vwp(CANVAS_RESIZE_HANDLE_WIDTH)}`,
-              height: '100%',
-              cursor: 'ew-resize',
-              zIndex: 2,
-              touchAction: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <div
-              style={{
-                width: '3px',
-                height: '40px',
-                borderRadius: '999px',
-                background: 'rgba(0, 0, 0, 0.55)',
-                opacity: 0.8,
-              }}
-            />
-          </div>
-        )}
         <div style={{
           position: 'absolute',
-          left: `${CANVAS_AREA_LEFT_PX}px`,
-          top: `${CANVAS_AREA_TOP_PX}px`,
-          width: `${CANVAS_AREA_WIDTH_PX}px`,
-          height: `${CANVAS_AREA_HEIGHT_PX}px`,
+          left: vwp(3),
+          top: vhp(10),
+          width: vwp(CANVAS_AREA_WIDTH),
+          height: vhp(CANVAS_AREA_HEIGHT),
           zIndex: 1
         }}>
           <svg
@@ -1629,346 +1252,269 @@ export default function SVGBoilingAnimation() {
             height={CANVAS_AREA_HEIGHT.toString()}
             preserveAspectRatio="xMidYMid meet"
             style={{ width: '100%', height: '100%' }}
-            dangerouslySetInnerHTML={svgMarkup}
+            dangerouslySetInnerHTML={{ __html: svgContent }}
           />
         </div>
       </div>
       
+      {/* 볼륨 다이얼들 */}
       <div style={{
         position: 'absolute',
-        left: KNOB_PANEL_LEFT_PX_STYLE,
-        top: KNOB_PANEL_TOP_PX_STYLE,
-        width: PANEL_WIDTH,
+        left: vwp(50),
+        top: vhp(559),
+        width: vwp(290),
+        height: vhp(167),
         display: 'flex',
-        flexDirection: 'column',
-        gap: vhp(14),
+        justifyContent: 'space-between',
+        alignItems: 'center'
       }}>
-        {isMobile ? (
-          <>
-            <div
+        {/* 첫 번째 다이얼 - 떨림 세기 */}
+        <div style={{
+          width: vwp(130),
+          height: vwp(130),
+          position: 'relative'
+        }}>
+          {/* Radial Elements */}
+          <div style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: vwp(85),
+            height: vwp(85)
+          }}>
+            {Array.from({ length: 24 }, (_, i) => {
+              const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345]
+              return (
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transformOrigin: '50% 50%',
+                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
+                  }}
+                >
+              <NextImage src="/svg/Vector 98.svg" alt="Radial element" width={5} height={19} style={{ transform: 'scale(1.0)', display: 'block' }} />
+                </div>
+              )
+            })}
+          </div>
+          {/* 다이얼 중앙 */}
+          <div style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: vwp(85),
+            height: vwp(85),
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100
+          }}>
+            <button
+              id="tremor-circle"
+              type="button"
+              className="control-button"
+              role="slider"
+              aria-label="떨림 세기 조절"
+              aria-describedby="tremor-value"
+              aria-valuemin={TREMOR_MIN}
+              aria-valuemax={TREMOR_MAX}
+              aria-valuenow={tremorValue}
+              onMouseDown={(e) => handleMouseDown(e, 1)}
+              onTouchStart={(e) => handleTouchStart(e, 1)}
+              onKeyDown={(e) => handleDialKeyDown(e, 1)}
               style={{
-                display: 'flex',
-                gap: vwp(6),
+                width: '100%',
+                height: '100%',
+                cursor: 'grab',
+                userSelect: 'none',
+                touchAction: 'none',
               }}
             >
-              {mobileSliderTabs.map((tab) => {
-                const isSelected = tab.key === selectedMobileSlider
-                return (
-                  <button
-                    type="button"
-                    key={tab.key}
-                    onClick={() => setSelectedMobileSlider(tab.key)}
-                    style={{
-                      flex: 1,
-                      borderRadius: 10,
-                      border: isSelected ? '2px solid #E74C3C' : '1px solid rgba(0, 0, 0, 0.35)',
-                      background: isSelected ? 'rgba(231, 76, 60, 0.2)' : '#fff',
-                      color: '#222',
-                      padding: `${vwp(6)} ${vwp(10)}`,
-                      fontSize: vwp(12),
-                      fontWeight: isSelected ? 700 : 400,
-                      lineHeight: 1,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                )
-              })}
-            </div>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: vwp(10),
-              color: 'rgb(0, 0, 0)',
-            }}>
-              <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>{activeMobileSlider.label} :</div>
-              <input
-                type="range"
-                min={activeMobileSlider.min}
-                max={activeMobileSlider.max}
-                step={activeMobileSlider.step}
-                value={activeMobileSlider.value}
-                onChange={activeMobileSlider.onChange}
-                aria-label={activeMobileSlider.ariaLabel}
-                style={{
-                  flex: 1,
-                  accentColor: '#FF6A6A',
-                }}
-              />
-              <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
-                {activeMobileSlider.displayValue}
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: vwp(10),
-              color: 'rgb(0, 0, 0)',
-            }}>
-              <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>떨림 강도 :</div>
-              <input
-                type="range"
-                min={TREMOR_MIN}
-                max={TREMOR_MAX}
-                step={0.001}
-                value={tremorValue}
-                onChange={handleTremorChange}
-                aria-label="떨림 강도 슬라이더"
-                style={{
-                  flex: 1,
-                  accentColor: '#FF6A6A',
-                }}
-              />
-              <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
-                {tremorValue.toFixed(4)}
-              </div>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: vwp(10),
-              color: 'rgb(0, 0, 0)',
-            }}>
-              <div style={{ fontSize: vwp(18), whiteSpace: 'nowrap' }}>세기 강도 :</div>
-              <input
-                type="range"
-                min={INTENSITY_MIN}
-                max={INTENSITY_MAX}
-                step={0.1}
-                value={intensityValue}
-                onChange={handleIntensityChange}
-                aria-label="세기 강도 슬라이더"
-                style={{
-                  flex: 1,
-                  accentColor: '#FF6A6A',
-                }}
-              />
-              <div style={{ fontSize: vwp(18), width: vwp(62), textAlign: 'right', fontWeight: 'bold' }}>
-                {intensityValue.toFixed(1)}
-              </div>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: vwp(10),
-              color: 'rgb(0, 0, 0)',
-            }}>
-              <div style={{
-                fontSize: vwp(18),
-                whiteSpace: 'nowrap',
-              }}>
-                보일링 폭 :
-              </div>
-              <input
-                type="range"
-                min={ANIMATION_SCALE_MIN}
-                max={ANIMATION_SCALE_MAX}
-                step={0.01}
-                value={animationScale}
-                onChange={handleAnimationScaleChange}
-                aria-label="보일링 애니메이션 폭"
-                style={{
-                  flex: 1,
-                  accentColor: '#FF6A6A',
-                }}
-              />
-              <div style={{
-                fontSize: vwp(18),
-                width: vwp(45),
-                textAlign: 'right',
-                fontWeight: 'bold',
-              }}>
-                {animationScale.toFixed(2)}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          left: LAYER_PANEL_LEFT_PX_STYLE,
-          top: LAYER_PANEL_TOP_PX_STYLE,
-          width: PANEL_WIDTH,
-          maxHeight: LAYER_PANEL_MAX_HEIGHT_STYLE,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: vhp(10),
-          color: 'rgb(0, 0, 0)',
-        }}
-      >
-        <div style={{
-          fontSize: vwp(18),
-          fontWeight: 700,
-        }}>
-          이미지 레이어
-        </div>
-
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: vhp(8),
-          overflowY: 'auto',
-          paddingRight: 4,
-        }}
-        >
-          {frameLayers.map((frame, index) => {
-            const isActive = index === currentFrameIndex
-
-            return (
-              <button
-                type="button"
-                key={frame.id}
-                onClick={() => handleFrameSelect(frame.id)}
+              <NextImage 
+                src="/svg/Group 241.svg" 
+                alt="Tremor circle" 
+                width={116}
+                height={117}
                 style={{
                   width: '100%',
-                  textAlign: 'left',
-                  borderRadius: 10,
-                  border: isActive ? '2px solid #e74c3c' : '1px solid rgba(0,0,0,0.25)',
-                  background: isActive ? 'rgba(255, 255, 255, 0.92)' : '#fff',
-                  padding: `${vwp(6)} ${vwp(8)}`,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: vhp(6),
-                  cursor: 'pointer',
+                  height: '100%',
+                  transformOrigin: 'center center',
+                  transform: `rotate(${currentRotation}deg)`,
+                  transition: 'transform 80ms linear',
+                  willChange: 'transform',
+                  filter: 'none'
                 }}
-              >
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: vwp(8),
-                  fontWeight: 700,
-                }}>
-                  <span style={{ fontSize: vwp(13) }}>
-                    {index + 1}. {frame.name}
-                  </span>
-                  <span style={{ fontSize: vwp(11), opacity: 0.65 }}>
-                    {frame.originalWidth}x{frame.originalHeight}
-                  </span>
-                </div>
-
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: vwp(6),
-                }}>
-                  <span style={{ fontSize: vwp(11), opacity: 0.75 }}>
-                    체류시간 (초)
-                  </span>
-                  <input
-                    type="range"
-                    min={sliderDurationMin}
-                    max={sliderDurationMax}
-                    step={sliderDurationStep}
-                    value={frame.durationMs / 1000}
-                    onChange={(event) => {
-                      event.stopPropagation()
-                      handleFrameDurationChange(frame.id, event.target.value)
-                    }}
-                    style={{
-                      flex: 1,
-                      accentColor: '#FF6A6A',
-                    }}
-                  />
-                  <span style={{ minWidth: vwp(44), textAlign: 'right', fontSize: vwp(11) }}>
-                    {formatDurationSeconds(frame.durationMs)}s
-                  </span>
-                  {isActive ? (
-                    <span style={{ minWidth: vwp(56), textAlign: 'right', fontSize: vwp(11), opacity: 0.8 }}>
-                      {`${formatDurationSeconds(frameRemainingMs)}초`}
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      handleFrameRemove(frame.id)
-                    }}
-                    disabled={frameLayers.length <= 1}
-                    style={{
-                      width: vwp(36),
-                      height: vwp(22),
-                      borderRadius: 6,
-                      border: '1px solid rgba(0,0,0,0.25)',
-                      background: '#fff',
-                      cursor: frameLayers.length <= 1 ? 'not-allowed' : 'pointer',
-                      opacity: frameLayers.length <= 1 ? 0.5 : 1,
-                    }}
-                  >
-                    X
-                  </button>
-                </div>
-              </button>
-            )
-          })}
+              />
+            </button>
+          </div>
         </div>
+        
+        {/* 두 번째 다이얼 - 효과 강도 */}
+        <div style={{
+          width: vwp(130),
+          height: vwp(130),
+          position: 'relative'
+        }}>
+          {/* Radial Elements */}
+          <div style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: vwp(85),
+            height: vwp(85)
+          }}>
+            {Array.from({ length: 24 }, (_, i) => {
+              const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345]
+              return (
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transformOrigin: '50% 50%',
+                    transform: `translate(-50%, -50%) rotate(${angles[i]}deg) translateY(calc(-1 * ${vwp(60)}))`
+                  }}
+                >
+              <NextImage src="/svg/Vector 98.svg" alt="Radial element" width={5} height={19} style={{ transform: 'scale(1.0)', display: 'block' }} />
+                </div>
+              )
+            })}
+          </div>
+          {/* 다이얼 중앙 */}
+          <div style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: vwp(85),
+            height: vwp(85),
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100
+          }}>
+            <button
+              id="tremor-circle-2"
+              type="button"
+              className="control-button"
+              role="slider"
+              aria-label="강도 조절"
+              aria-describedby="intensity-value"
+              aria-valuemin={INTENSITY_MIN}
+              aria-valuemax={INTENSITY_MAX}
+              aria-valuenow={intensityValue}
+              onMouseDown={(e) => handleMouseDown(e, 2)}
+              onTouchStart={(e) => handleTouchStart(e, 2)}
+              onKeyDown={(e) => handleDialKeyDown(e, 2)}
+              style={{
+                width: '100%',
+                height: '100%',
+                cursor: 'grab',
+                userSelect: 'none',
+                touchAction: 'none',
+              }}
+            >
+              <NextImage 
+                src="/svg/Group 241-4.svg" 
+                alt="Intensity circle" 
+                width={116}
+                height={117}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  transformOrigin: 'center center',
+                  transform: `rotate(${currentRotation2}deg)`,
+                  transition: 'transform 80ms linear',
+                  willChange: 'transform',
+                  filter: 'none'
+                }}
+              />
+            </button>
+          </div>
+        </div>
+      </div>
 
-        <button
-          type="button"
-          disabled={isProcessing}
-          onClick={() => fileInputRef.current?.click()}
+      {/* 텍스트 라벨들 */}
+      <div style={{
+        position: 'absolute',
+        left: vwp(30),
+        top: vhp(740),
+        fontSize: vwp(25),
+        color: 'rgb(0, 0, 0)',
+        textAlign: 'center',
+        whiteSpace: 'nowrap',
+        lineHeight: 'normal',
+        width: vwp(140)
+      }}>
+        떨림 세기 : <span id="tremor-value" role="status" aria-live="polite" style={{ display: 'inline-block', width: vwp(50), textAlign: 'left', fontWeight: 'bold' }}>{tremorValue.toFixed(3)}</span>
+      </div>
+      
+      <div style={{
+        position: 'absolute',
+        left: vwp(220),
+        top: vhp(740),
+        fontSize: vwp(25),
+        color: 'rgb(0, 0, 0)',
+        textAlign: 'center',
+        whiteSpace: 'nowrap',
+        lineHeight: 'normal',
+        width: vwp(140),
+        right: 0
+      }}>
+        세기 강도 : <span id="intensity-value" role="status" aria-live="polite" style={{ display: 'inline-block', width: vwp(40), textAlign: 'left', fontWeight: 'bold' }}>{intensityValue.toFixed(1)}</span>
+      </div>
+
+      <div style={{
+        position: 'absolute',
+        left: vwp(30),
+        top: vhp(770),
+        width: vwp(333),
+        display: 'flex',
+        alignItems: 'center',
+        gap: vwp(10),
+        color: 'rgb(0, 0, 0)',
+      }}>
+        <div style={{
+          fontSize: vwp(18),
+          whiteSpace: 'nowrap',
+        }}>
+          보일링 폭 :
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={animationScale}
+          onChange={(e) => setAnimationScale(Number(e.target.value))}
+          aria-label="보일링 애니메이션 폭"
           style={{
-            width: '100%',
-            padding: `${vwp(6)} ${vwp(8)}`,
-            borderRadius: 10,
-            border: '1px solid rgba(0,0,0,0.35)',
-            background: '#fff',
-            cursor: isProcessing ? 'not-allowed' : 'pointer',
-            opacity: isProcessing ? 0.7 : 1,
+            flex: 1,
+            accentColor: '#FF6A6A',
           }}
-        >
-          + 레이어 추가
-        </button>
-
-        {processingMessage ? (
-          <div
-            style={{
-              marginTop: vhp(6),
-              borderRadius: 8,
-              border: '1px solid rgba(35, 79, 133, 0.35)',
-              background: 'rgba(224, 240, 255, 0.95)',
-              color: '#1e3a5f',
-              padding: `${vwp(6)} ${vwp(8)}`,
-              fontSize: vwp(11),
-              lineHeight: 1.35,
-            }}
-          >
-            {processingMessage}
-          </div>
-        ) : null}
-
-        {uploadErrorMessage ? (
-          <div
-            style={{
-              marginTop: vhp(6),
-              borderRadius: 8,
-              border: '1px solid rgba(122, 31, 31, 0.35)',
-              background: 'rgba(255, 230, 230, 0.95)',
-              color: '#7a1f1f',
-              padding: `${vwp(6)} ${vwp(8)}`,
-              fontSize: vwp(11),
-              lineHeight: 1.35,
-            }}
-          >
-            {uploadErrorMessage}
-          </div>
-        ) : null}
+        />
+        <div style={{
+          fontSize: vwp(18),
+          width: vwp(45),
+          textAlign: 'right',
+          fontWeight: 'bold',
+        }}>
+          {animationScale.toFixed(2)}
+        </div>
       </div>
 
       {/* 하단 툴바 */}
       <div style={{
         position: 'absolute',
         left: 0,
-        top: TOOLBAR_TOP_PX_STYLE,
+        top: vhp(802),
         width: '100%',
         height: vhp(50),
         backgroundColor: '#303030',
@@ -1981,12 +1527,10 @@ export default function SVGBoilingAnimation() {
         <button
           type="button"
           className="toolbar-button"
-          disabled={isProcessing || isExporting}
           style={{
             width: vwp(32),
             height: vwp(32),
-            cursor: isProcessing || isExporting ? 'not-allowed' : 'pointer',
-            opacity: isProcessing || isExporting ? 0.5 : 1,
+            cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center'
@@ -2001,18 +1545,18 @@ export default function SVGBoilingAnimation() {
         <button
           type="button"
           className="toolbar-button"
-          disabled={isExporting || isProcessing}
+          disabled={isExporting}
           style={{
             width: vwp(32),
             height: vwp(32),
-            cursor: isExporting || isProcessing ? 'not-allowed' : 'pointer',
+            cursor: isExporting ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: isExporting || isProcessing ? 0.5 : 1,
+            opacity: isExporting ? 0.5 : 1,
           }}
           onClick={() => {
-            if (isExporting || isProcessing) return
+            if (isExporting) return
             exportAsGIF()
           }}
           title="GIF 저장"
@@ -2024,7 +1568,7 @@ export default function SVGBoilingAnimation() {
       </div>
 
       {/* 숨겨진 파일 입력 */}
-      <input ref={fileInputRef} type="file" accept={acceptedFrameUploadTypes} onChange={handleFileUpload} style={{ display: 'none' }} />
+      <input ref={fileInputRef} type="file" accept=".svg,.png,.jpg,.jpeg" onChange={handleFileUpload} style={{ display: 'none' }} />
     </div>
     </div>
   )
